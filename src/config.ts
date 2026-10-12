@@ -23,9 +23,20 @@ export type WebhookSourceConfig = IntakeFilters & {
   map: FieldMap;
 };
 
+export type JiraSourceConfig = IntakeFilters & {
+  type: "jira";
+  site: string;
+  email?: string;
+  token?: string;
+  poll?: { intervalSeconds: number };
+  webhookSecret?: string;
+};
+
+export type SourceConfig = WebhookSourceConfig | JiraSourceConfig;
+
 export type Config = {
   listen: { host: string; port: number };
-  sources: Record<string, WebhookSourceConfig>;
+  sources: Record<string, SourceConfig>;
 };
 
 type Json = Record<string, unknown>;
@@ -33,6 +44,9 @@ type Json = Record<string, unknown>;
 const mapFields = ["key", "id", "type", "actorId", "actorName", "at", "url", "summary"];
 // The source name becomes the first part of a topic, which parseTopic restricts to this alphabet.
 const sourceNamePattern = /^[a-z0-9-]+$/;
+const defaultPollSeconds = 30;
+// Below this the poller would spend Jira's rate limit for no gain, since the search index lags by seconds anyway.
+const minimumPollSeconds = 5;
 
 function asObject(value: unknown, key: string): Json {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -79,15 +93,15 @@ function readMap(map: Json, prefix: string): FieldMap {
   return { key: requiredText(map, "key", prefix), ...optional };
 }
 
-function validateSource(name: string, raw: unknown): WebhookSourceConfig {
-  const prefix = `sources.${name}.`;
-  if (!sourceNamePattern.test(name)) {
-    throw new Error(`sources.${name} is not a valid source name, use lowercase letters, digits and hyphens`);
-  }
-  const source = asObject(raw, `sources.${name}`);
-  if (source.type !== "webhook") {
-    throw new Error(`${prefix}type is ${JSON.stringify(source.type)}, only "webhook" is supported`);
-  }
+function readFilters(source: Json, prefix: string): IntakeFilters {
+  return {
+    allowActors: textList(source, "allowActors", prefix),
+    ignoreActors: textList(source, "ignoreActors", prefix),
+    ignoreMarker: textOrEmpty(source, "ignoreMarker", prefix),
+  };
+}
+
+function validateWebhookSource(source: Json, prefix: string): WebhookSourceConfig {
   rejectUnknownKeys(
     source,
     ["type", "signature", "map", "allowActors", "ignoreActors", "ignoreMarker"],
@@ -107,10 +121,69 @@ function validateSource(name: string, raw: unknown): WebhookSourceConfig {
       secret: requiredText(signature, "secret", `${prefix}signature.`),
     },
     map: readMap(map, `${prefix}map.`),
-    allowActors: textList(source, "allowActors", prefix),
-    ignoreActors: textList(source, "ignoreActors", prefix),
-    ignoreMarker: textOrEmpty(source, "ignoreMarker", prefix),
+    ...readFilters(source, prefix),
   };
+}
+
+// Links in events are built from the site, so it must be a bare https origin.
+function readSite(source: Json, prefix: string): string {
+  const text = requiredText(source, "site", prefix);
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    throw new Error(`${prefix}site must be an https address such as https://example.atlassian.net`);
+  }
+  const isBareOrigin = url.protocol === "https:" && url.pathname === "/" && !url.search && !url.hash && !url.username;
+  if (!isBareOrigin) {
+    throw new Error(`${prefix}site must be an https origin with no path, such as https://example.atlassian.net`);
+  }
+  return url.origin;
+}
+
+function readPoll(raw: unknown, prefix: string): { intervalSeconds: number } {
+  const poll = asObject(raw, `${prefix}poll`);
+  rejectUnknownKeys(poll, ["intervalSeconds"], `${prefix}poll.`);
+  const intervalSeconds = poll.intervalSeconds ?? defaultPollSeconds;
+  if (
+    typeof intervalSeconds !== "number" ||
+    !Number.isInteger(intervalSeconds) ||
+    intervalSeconds < minimumPollSeconds
+  ) {
+    throw new Error(`${prefix}poll.intervalSeconds must be an integer of at least ${minimumPollSeconds}`);
+  }
+  return { intervalSeconds };
+}
+
+function validateJiraSource(source: Json, prefix: string): JiraSourceConfig {
+  rejectUnknownKeys(
+    source,
+    ["type", "site", "email", "token", "poll", "webhookSecret", "allowActors", "ignoreActors", "ignoreMarker"],
+    prefix,
+  );
+  if (source.poll === undefined && source.webhookSecret === undefined) {
+    throw new Error(`${prefix}poll or ${prefix}webhookSecret is needed, or the source would never receive an event`);
+  }
+
+  const config: JiraSourceConfig = { type: "jira", site: readSite(source, prefix), ...readFilters(source, prefix) };
+  if (source.poll !== undefined) {
+    config.poll = readPoll(source.poll, prefix);
+    config.email = requiredText(source, "email", prefix);
+    config.token = requiredText(source, "token", prefix);
+  }
+  if (source.webhookSecret !== undefined) config.webhookSecret = requiredText(source, "webhookSecret", prefix);
+  return config;
+}
+
+function validateSource(name: string, raw: unknown): SourceConfig {
+  const prefix = `sources.${name}.`;
+  if (!sourceNamePattern.test(name)) {
+    throw new Error(`sources.${name} is not a valid source name, use lowercase letters, digits and hyphens`);
+  }
+  const source = asObject(raw, `sources.${name}`);
+  if (source.type === "webhook") return validateWebhookSource(source, prefix);
+  if (source.type === "jira") return validateJiraSource(source, prefix);
+  throw new Error(`${prefix}type is ${JSON.stringify(source.type)}, expected "webhook" or "jira"`);
 }
 
 export function validateConfig(raw: unknown): Config {

@@ -1,6 +1,6 @@
 import { chmodSync } from "node:fs";
 import type { Server } from "node:http";
-import { loadConfig, type Config } from "./config.js";
+import { loadConfig, type Config, type SourceConfig } from "./config.js";
 import type { NewEvent, EventRecord } from "./event.js";
 import { droppingRule } from "./filters.js";
 import { createWebhookServer } from "./listener.js";
@@ -8,6 +8,7 @@ import { claimSocketPath, createLocalApiServer } from "./localApi.js";
 import { ensureStateDir, type Paths } from "./paths.js";
 import { lookupSecret } from "./secrets.js";
 import type { Source } from "./source.js";
+import { JiraSource } from "./sources/jira.js";
 import { WebhookSource } from "./sources/webhook.js";
 import { EventStore } from "./store.js";
 
@@ -153,6 +154,24 @@ export class Broker {
   }
 }
 
+function requireSecret(sourceName: string, secretName: string, paths: Paths, env: NodeJS.ProcessEnv): string {
+  const secret = lookupSecret(secretName, paths.secretsFile, env);
+  if (!secret) {
+    throw new Error(
+      `source "${sourceName}" needs the secret "${secretName}", found in neither ${paths.secretsFile} nor the environment`,
+    );
+  }
+  return secret;
+}
+
+function createSource(name: string, config: SourceConfig, paths: Paths, env: NodeJS.ProcessEnv): Source {
+  if (config.type === "jira") {
+    const secret = config.webhookSecret === undefined ? undefined : requireSecret(name, config.webhookSecret, paths, env);
+    return new JiraSource(name, config, secret);
+  }
+  return new WebhookSource(name, config, requireSecret(name, config.signature.secret, paths, env));
+}
+
 // Reads the config and resolves every source's secret before anything is opened or bound.
 export async function startBrokerFromFiles(
   paths: Paths,
@@ -161,15 +180,7 @@ export async function startBrokerFromFiles(
 ): Promise<Broker> {
   const config = loadConfig(paths.configFile);
   const sources = Object.fromEntries(
-    Object.entries(config.sources).map(([name, source]) => {
-      const secret = lookupSecret(source.signature.secret, paths.secretsFile, env);
-      if (!secret) {
-        throw new Error(
-          `source "${name}" needs the secret "${source.signature.secret}", found in neither ${paths.secretsFile} nor the environment`,
-        );
-      }
-      return [name, new WebhookSource(name, source, secret)];
-    }),
+    Object.entries(config.sources).map(([name, source]) => [name, createSource(name, source, paths, env)]),
   );
   return Broker.start({ paths, config, sources, log });
 }
