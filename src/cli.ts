@@ -1,12 +1,7 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { commands } from "./commands/index.js";
-
-function readVersion(): string {
-  const packageJson = new URL("../package.json", import.meta.url);
-  return JSON.parse(readFileSync(packageJson, "utf8")).version;
-}
+import { readVersion } from "./version.js";
 
 function usage(): string {
   const names = Object.keys(commands);
