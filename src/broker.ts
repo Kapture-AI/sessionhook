@@ -1,8 +1,10 @@
+import { chmodSync } from "node:fs";
 import type { Server } from "node:http";
 import type { Config } from "./config.js";
 import type { NewEvent, EventRecord } from "./event.js";
 import { droppingRule } from "./filters.js";
 import { createWebhookServer } from "./listener.js";
+import { claimSocketPath, createLocalApiServer } from "./localApi.js";
 import { ensureStateDir, type Paths } from "./paths.js";
 import type { Source } from "./source.js";
 import { EventStore } from "./store.js";
@@ -38,6 +40,7 @@ function closed(server: Server): Promise<void> {
 export class Broker {
   readonly store: EventStore;
   private readonly webhookServer: Server;
+  private readonly localApiServer: Server;
   private readonly readers = new Set<() => void>();
   private stopping = false;
 
@@ -47,10 +50,12 @@ export class Broker {
   ) {
     this.store = store;
     this.webhookServer = createWebhookServer(this, options.sources, options.log);
+    this.localApiServer = createLocalApiServer(this, options.log);
   }
 
   static async start(options: BrokerOptions): Promise<Broker> {
     ensureStateDir(options.paths);
+    await claimSocketPath(options.paths.socketFile);
     const broker = new Broker(options, new EventStore(options.paths.databaseFile));
     try {
       await broker.listen();
@@ -110,15 +115,21 @@ export class Broker {
   async stop(): Promise<void> {
     this.stopping = true;
     this.wakeReaders();
-    await closed(this.webhookServer);
+    // Lets the woken long-polls write their empty replies before the connections are cut.
+    await new Promise((resolve) => setImmediate(resolve));
+    await Promise.all([closed(this.webhookServer), closed(this.localApiServer)]);
     this.store.close();
   }
 
   private async listen(): Promise<void> {
     const { host, port } = this.options.config.listen;
     await listening(this.webhookServer, () => this.webhookServer.listen(port, host));
+    const { socketFile } = this.options.paths;
+    await listening(this.localApiServer, () => this.localApiServer.listen(socketFile));
+    chmodSync(socketFile, 0o600);
     const names = Object.keys(this.options.sources).join(", ") || "none";
     this.options.log(`webhook listener on http://${host}:${this.webhookPort}, sources: ${names}`);
+    this.options.log(`local API on ${socketFile}`);
   }
 
   private nextWake(milliseconds: number, aborted: AbortSignal): Promise<void> {
