@@ -23,7 +23,7 @@
   "scripts": {
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test \"dist/**/*.test.js\""
+    "test": "rm -rf dist && npm run build && node --test \"dist/**/*.test.js\""
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
