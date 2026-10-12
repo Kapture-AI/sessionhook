@@ -1,0 +1,38 @@
+{
+  "timestamp": 1791799001681,
+  "webhookEvent": "comment_created",
+  "comment": {
+    "self": "https://example.atlassian.net/rest/api/2/issue/10100/comment/20001",
+    "id": "20001",
+    "author": {
+      "accountId": "5b10a2844c20165700ede21g",
+      "displayName": "Ada Lovelace",
+      "active": true,
+      "timeZone": "Asia/Dubai",
+      "accountType": "atlassian"
+    },
+    "body": "Deploy check passed, safe to ignore.",
+    "updateAuthor": {
+      "accountId": "5b10a2844c20165700ede21g",
+      "displayName": "Ada Lovelace",
+      "active": true,
+      "timeZone": "Asia/Dubai",
+      "accountType": "atlassian"
+    },
+    "created": "2026-10-12T13:56:41.681+0400",
+    "updated": "2026-10-12T13:56:41.681+0400",
+    "jsdPublic": true
+  },
+  "issue": {
+    "id": "10100",
+    "self": "https://example.atlassian.net/rest/api/2/issue/10100",
+    "key": "PROJ-123",
+    "fields": {
+      "summary": "Check the deploy pipeline",
+      "status": {
+        "name": "In Progress",
+        "id": "10005"
+      }
+    }
+  }
+}

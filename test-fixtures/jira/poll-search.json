@@ -1,0 +1,238 @@
+{
+  "issues": [
+    {
+      "expand": "operations,versionedRepresentations,editmeta,renderedFields",
+      "id": "10100",
+      "self": "https://example.atlassian.net/rest/api/3/issue/10100",
+      "key": "PROJ-123",
+      "changelog": {
+        "startAt": 0,
+        "maxResults": 40,
+        "total": 2,
+        "histories": [
+          {
+            "id": "30001",
+            "author": {
+              "accountId": "5b10a2844c20165700ede21g",
+              "emailAddress": "ada@example.com",
+              "displayName": "Ada Lovelace",
+              "active": true,
+              "timeZone": "Asia/Dubai",
+              "accountType": "atlassian"
+            },
+            "created": "2026-10-12T13:36:10.213+0400",
+            "items": [
+              {
+                "field": "status",
+                "fieldtype": "jira",
+                "fromString": "To Do",
+                "toString": "In Progress"
+              },
+              {
+                "field": "resolution",
+                "fieldtype": "jira",
+                "fromString": "",
+                "toString": "Done"
+              }
+            ]
+          },
+          {
+            "id": "30000",
+            "author": {
+              "accountId": "5b10ac8d82e05b22cc7d4ef5",
+              "emailAddress": "grace@example.com",
+              "displayName": "Grace Hopper",
+              "active": true,
+              "timeZone": "Europe/London",
+              "accountType": "atlassian"
+            },
+            "created": "2026-10-11T10:00:00.000+0400",
+            "items": [
+              {
+                "field": "assignee",
+                "fieldtype": "jira",
+                "fromString": null,
+                "toString": "Ada Lovelace"
+              }
+            ]
+          }
+        ]
+      },
+      "fields": {
+        "summary": "Check the deploy pipeline",
+        "updated": "2026-10-12T13:58:10.000+0400",
+        "status": {
+          "name": "In Progress",
+          "id": "10005"
+        },
+        "comment": {
+          "comments": [
+            {
+              "self": "https://example.atlassian.net/rest/api/3/issue/10100/comment/20000",
+              "id": "20000",
+              "author": {
+                "accountId": "5b10ac8d82e05b22cc7d4ef5",
+                "emailAddress": "grace@example.com",
+                "displayName": "Grace Hopper",
+                "active": true,
+                "timeZone": "Europe/London",
+                "accountType": "atlassian"
+              },
+              "body": {
+                "type": "doc",
+                "version": 1,
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Older comment, from before the poll window."
+                      }
+                    ]
+                  }
+                ]
+              },
+              "updateAuthor": {
+                "accountId": "5b10ac8d82e05b22cc7d4ef5",
+                "emailAddress": "grace@example.com",
+                "displayName": "Grace Hopper",
+                "active": true,
+                "timeZone": "Europe/London",
+                "accountType": "atlassian"
+              },
+              "created": "2026-10-11T09:15:00.000+0400",
+              "updated": "2026-10-11T09:15:00.000+0400",
+              "jsdPublic": true
+            },
+            {
+              "self": "https://example.atlassian.net/rest/api/3/issue/10100/comment/20002",
+              "id": "20002",
+              "author": {
+                "accountId": "5b10ac8d82e05b22cc7d4ef5",
+                "emailAddress": "grace@example.com",
+                "displayName": "Grace Hopper",
+                "active": true,
+                "timeZone": "Europe/London",
+                "accountType": "atlassian"
+              },
+              "body": {
+                "type": "doc",
+                "version": 1,
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Please look at "
+                      },
+                      {
+                        "type": "mention",
+                        "attrs": {
+                          "id": "5b10a2844c20165700ede21g",
+                          "text": "@Ada Lovelace"
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": " first."
+                      }
+                    ]
+                  },
+                  {
+                    "type": "bulletList",
+                    "content": [
+                      {
+                        "type": "listItem",
+                        "content": [
+                          {
+                            "type": "paragraph",
+                            "content": [
+                              {
+                                "type": "text",
+                                "text": "rerun the build"
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "type": "listItem",
+                        "content": [
+                          {
+                            "type": "paragraph",
+                            "content": [
+                              {
+                                "type": "text",
+                                "text": "check the logs"
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              "updateAuthor": {
+                "accountId": "5b10a2844c20165700ede21g",
+                "emailAddress": "ada@example.com",
+                "displayName": "Ada Lovelace",
+                "active": true,
+                "timeZone": "Asia/Dubai",
+                "accountType": "atlassian"
+              },
+              "created": "2026-10-12T12:00:00.000+0400",
+              "updated": "2026-10-12T13:58:10.000+0400",
+              "jsdPublic": true
+            },
+            {
+              "self": "https://example.atlassian.net/rest/api/3/issue/10100/comment/20001",
+              "id": "20001",
+              "author": {
+                "accountId": "5b10a2844c20165700ede21g",
+                "emailAddress": "ada@example.com",
+                "displayName": "Ada Lovelace",
+                "active": true,
+                "timeZone": "Asia/Dubai",
+                "accountType": "atlassian"
+              },
+              "body": {
+                "type": "doc",
+                "version": 1,
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "Deploy check passed, safe to ignore."
+                      }
+                    ]
+                  }
+                ]
+              },
+              "updateAuthor": {
+                "accountId": "5b10a2844c20165700ede21g",
+                "emailAddress": "ada@example.com",
+                "displayName": "Ada Lovelace",
+                "active": true,
+                "timeZone": "Asia/Dubai",
+                "accountType": "atlassian"
+              },
+              "created": "2026-10-12T13:56:41.681+0400",
+              "updated": "2026-10-12T13:56:41.681+0400",
+              "jsdPublic": true
+            }
+          ],
+          "self": "https://example.atlassian.net/rest/api/3/issue/10100/comment",
+          "maxResults": 20,
+          "total": 3,
+          "startAt": 0
+        }
+      }
+    }
+  ],
+  "isLast": true
+}
