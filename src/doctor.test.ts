@@ -148,12 +148,12 @@ test("the probe is signed with the webhook secret and a real listener answers it
     setup.client = new BrokerClient(setup.paths.socketFile);
     setup.fetch = (async (url: string, init: RequestInit) => {
       requests.push({ url, body: String(init.body) });
-      return fetch(`http://127.0.0.1:${broker.webhookPort}${new URL(url).pathname}`, init);
+      return fetch(`http://127.0.0.1:${broker.webhookPort}${new URL(url).pathname}${new URL(url).search}`, init);
     }) as unknown as typeof fetch;
     const results = await runDoctor(setup);
     assert.equal(byName(results, "public URL (jira)").status, "ok", byName(results, "public URL (jira)").detail);
     assert.equal(byName(results, "broker").status, "ok");
-    assert.equal(requests[0]!.url, "https://hooks.example.com/hooks/jira");
+    assert.equal(requests[0]!.url, "https://hooks.example.com/hooks/jira?probe=doctor");
     assert.equal(JSON.parse(requests[0]!.body).webhookEvent, "sessionhook:doctor");
     assert.deepEqual(broker.store.status(), []);
 

@@ -102,6 +102,37 @@ test("a correctly signed POST is stored as one event and the same request sent t
   assert.deepEqual(unreadFor("watcher"), ["deploys:1"]);
 });
 
+test("a signed POST with a query string is stored exactly like one without", async () => {
+  acknowledgeAll("watcher");
+  const payload = { repository: { full_name: "org/web" }, delivery: { id: 4 }, message: "with query" };
+  const response = await signedPost("/hooks/deploys?user_id=x&user_key=y", payload);
+  assert.equal(response.status, 200);
+  assert.deepEqual(JSON.parse(response.body), { results: ["stored"] });
+  assert.deepEqual(unreadFor("watcher"), ["deploys:4"]);
+  const repeat = await signedPost("/hooks/deploys", payload);
+  assert.deepEqual(JSON.parse(repeat.body), { results: ["duplicate"] });
+});
+
+test("an unknown source under /hooks/ gets 404 and is logged without its query string", async () => {
+  lines.length = 0;
+  assert.equal((await post("/hooks/jira-old?user_key=secret-token", "{}")).status, 404);
+  assert.deepEqual(lines, ['rejected: no source at "/hooks/jira-old"']);
+});
+
+test("a long unknown path is cut before it is logged", async () => {
+  lines.length = 0;
+  await post(`/hooks/${"a".repeat(500)}`, "{}");
+  assert.equal(lines.length, 1);
+  assert.ok(lines[0]!.length < 200);
+});
+
+test("a path outside /hooks/ gets 404 and is not logged", async () => {
+  lines.length = 0;
+  assert.equal((await post("/favicon.ico?x=1", "{}")).status, 404);
+  assert.equal((await post("/", "{}")).status, 404);
+  assert.deepEqual(lines, []);
+});
+
 test("a POST with a wrong signature gets 401 and stores nothing", async () => {
   acknowledgeAll("watcher");
   const body = JSON.stringify({ repository: { full_name: "org/web" }, delivery: { id: 2 } });
