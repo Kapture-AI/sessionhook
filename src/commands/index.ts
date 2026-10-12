@@ -1,4 +1,6 @@
 import { serve } from "./serve.js";
+import { status } from "./status.js";
+import { subscribe, unsubscribe } from "./subscribe.js";
 
 export type Command = {
   summary: string;
@@ -11,9 +13,9 @@ export const commands: Record<string, Command> = {
   init: { summary: "Write the config, register the MCP server and print webhook settings" },
   serve: { summary: "Run the broker", run: serve },
   doctor: { summary: "Check the broker, the Jira token and the public webhook URL" },
-  subscribe: { summary: "Subscribe to a topic" },
-  unsubscribe: { summary: "Remove a subscription" },
-  status: { summary: "List subscribers, their topics and unread counts" },
+  subscribe: { summary: "Subscribe to a topic", run: subscribe },
+  unsubscribe: { summary: "Remove a subscription", run: unsubscribe },
+  status: { summary: "List subscribers, their topics and unread counts", run: status },
   wait: { summary: "Block until there are unread events, print them and exit" },
   tail: { summary: "Stream events as they arrive" },
   replay: { summary: "Send stored events to a subscriber again" },
