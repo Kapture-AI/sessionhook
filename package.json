@@ -1,7 +1,19 @@
 {
   "name": "sessionhook",
-  "version": "0.0.0",
-  "description": "Event subscriptions for Claude Code sessions",
+  "version": "0.1.0",
+  "description": "Deliver Jira comments and webhook events to running Claude Code sessions",
+  "keywords": [
+    "claude-code",
+    "jira",
+    "webhook",
+    "mcp",
+    "channels",
+    "events"
+  ],
+  "homepage": "https://github.com/Kapture-AI/sessionhook#readme",
+  "bugs": {
+    "url": "https://github.com/Kapture-AI/sessionhook/issues"
+  },
   "license": "MIT",
   "type": "module",
   "repository": {
@@ -17,13 +29,16 @@
   "files": [
     "dist",
     "!dist/**/*.test.js",
+    "CHANGELOG.md",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "rm -rf dist && tsc",
     "typecheck": "tsc --noEmit",
-    "test": "rm -rf dist && npm run build && node --test \"dist/**/*.test.js\""
+    "test": "npm run build && node --test \"dist/**/*.test.js\"",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm test"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
