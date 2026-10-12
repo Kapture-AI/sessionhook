@@ -36,8 +36,17 @@ export type JiraSourceConfig = IntakeFilters & {
 
 export type SourceConfig = WebhookSourceConfig | JiraSourceConfig;
 
+export type SpawnConfig = {
+  // Passed to claude as they are. spawn adds no permission flag of its own.
+  claudeFlags: string[];
+  prompt?: string;
+};
+
 export type Config = {
   listen: { host: string; port: number };
+  // The public origin that reaches the webhook listener.
+  publicUrl?: string;
+  spawn: SpawnConfig;
   sources: Record<string, SourceConfig>;
 };
 
@@ -127,20 +136,23 @@ function validateWebhookSource(source: Json, prefix: string): WebhookSourceConfi
   };
 }
 
-// Links in events are built from the site, so it must be a bare https origin.
-function readSite(source: Json, prefix: string): string {
-  const text = requiredText(source, "site", prefix);
+// Links and probes are built from the origin, so it must be a bare https origin.
+export function parseHttpsOrigin(text: string, label: string, example: string): string {
   let url: URL;
   try {
     url = new URL(text);
   } catch {
-    throw new Error(`${prefix}site must be an https address such as https://example.atlassian.net`);
+    throw new Error(`${label} must be an https address such as ${example}`);
   }
   const isBareOrigin = url.protocol === "https:" && url.pathname === "/" && !url.search && !url.hash && !url.username;
   if (!isBareOrigin) {
-    throw new Error(`${prefix}site must be an https origin with no path, such as https://example.atlassian.net`);
+    throw new Error(`${label} must be an https origin with no path, such as ${example}`);
   }
   return url.origin;
+}
+
+function readSite(source: Json, prefix: string): string {
+  return parseHttpsOrigin(requiredText(source, "site", prefix), `${prefix}site`, "https://example.atlassian.net");
 }
 
 function readPoll(raw: unknown, prefix: string): { intervalSeconds: number } {
@@ -193,7 +205,7 @@ function validateSource(name: string, raw: unknown): SourceConfig {
 
 export function validateConfig(raw: unknown): Config {
   const root = asObject(raw, "config");
-  rejectUnknownKeys(root, ["listen", "sources"], "");
+  rejectUnknownKeys(root, ["listen", "publicUrl", "spawn", "sources"], "");
 
   const listen = asObject(root.listen ?? {}, "listen");
   rejectUnknownKeys(listen, ["host", "port"], "listen.");
@@ -202,9 +214,19 @@ export function validateConfig(raw: unknown): Config {
     throw new Error("listen.port must be an integer from 0 to 65535");
   }
 
+  const spawn = asObject(root.spawn ?? {}, "spawn");
+  rejectUnknownKeys(spawn, ["claudeFlags", "prompt"], "spawn.");
+
   const sources = asObject(root.sources ?? {}, "sources");
   return {
     listen: { host: listen.host === undefined ? "127.0.0.1" : requiredText(listen, "host", "listen."), port },
+    ...(root.publicUrl === undefined
+      ? {}
+      : { publicUrl: parseHttpsOrigin(requiredText(root, "publicUrl", ""), "publicUrl", "https://hooks.example.com") }),
+    spawn: {
+      claudeFlags: textList(spawn, "claudeFlags", "spawn."),
+      ...(spawn.prompt === undefined ? {} : { prompt: requiredText(spawn, "prompt", "spawn.") }),
+    },
     sources: Object.fromEntries(
       Object.entries(sources).map(([name, source]) => [name, validateSource(name, source)]),
     ),
