@@ -5,16 +5,15 @@ import { tail, wait } from "./delivery.js";
 import { replay } from "./replay.js";
 import { serve } from "./serve.js";
 import { service } from "./service.js";
+import { spawn } from "./spawn.js";
 import { status } from "./status.js";
 import { subscribe, unsubscribe } from "./subscribe.js";
 
 export type Command = {
   summary: string;
-  // Absent until the command is implemented.
-  run?: (args: string[]) => Promise<void> | void;
+  run: (args: string[]) => Promise<void> | void;
 };
 
-// A later phase implements a command in its own file and sets `run` here.
 export const commands: Record<string, Command> = {
   init: { summary: "Write the config, register the MCP server and print webhook settings", run: init },
   serve: { summary: "Run the broker", run: serve },
@@ -30,5 +29,5 @@ export const commands: Record<string, Command> = {
   },
   service: { summary: "Install, remove or check the broker as a login service", run: service },
   replay: { summary: "Send stored events to a subscriber again", run: replay },
-  spawn: { summary: "Start a tmux session running Claude Code, subscribed to a topic" },
+  spawn: { summary: "Start a tmux session running Claude Code, subscribed to a topic", run: spawn },
 };
