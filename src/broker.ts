@@ -1,12 +1,14 @@
 import { chmodSync } from "node:fs";
 import type { Server } from "node:http";
-import type { Config } from "./config.js";
+import { loadConfig, type Config } from "./config.js";
 import type { NewEvent, EventRecord } from "./event.js";
 import { droppingRule } from "./filters.js";
 import { createWebhookServer } from "./listener.js";
 import { claimSocketPath, createLocalApiServer } from "./localApi.js";
 import { ensureStateDir, type Paths } from "./paths.js";
+import { lookupSecret } from "./secrets.js";
 import type { Source } from "./source.js";
+import { WebhookSource } from "./sources/webhook.js";
 import { EventStore } from "./store.js";
 
 export type IntakeOutcome = "stored" | "duplicate" | "filtered";
@@ -149,4 +151,25 @@ export class Broker {
   private wakeReaders(): void {
     for (const wake of [...this.readers]) wake();
   }
+}
+
+// Reads the config and resolves every source's secret before anything is opened or bound.
+export async function startBrokerFromFiles(
+  paths: Paths,
+  env: NodeJS.ProcessEnv,
+  log: (line: string) => void,
+): Promise<Broker> {
+  const config = loadConfig(paths.configFile);
+  const sources = Object.fromEntries(
+    Object.entries(config.sources).map(([name, source]) => {
+      const secret = lookupSecret(source.signature.secret, paths.secretsFile, env);
+      if (!secret) {
+        throw new Error(
+          `source "${name}" needs the secret "${source.signature.secret}", found in neither ${paths.secretsFile} nor the environment`,
+        );
+      }
+      return [name, new WebhookSource(name, source, secret)];
+    }),
+  );
+  return Broker.start({ paths, config, sources, log });
 }
