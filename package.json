@@ -33,9 +33,10 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "rm -rf dist && tsc",
     "typecheck": "tsc --noEmit",
-    "test": "rm -rf dist && npm run build && node --test \"dist/**/*.test.js\"",
+    "test": "npm run build && node --test \"dist/**/*.test.js\"",
+    "prepack": "npm run build",
     "prepublishOnly": "npm test"
   },
   "devDependencies": {
