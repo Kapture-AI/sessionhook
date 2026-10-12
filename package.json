@@ -1,0 +1,32 @@
+{
+  "name": "sessionhook",
+  "version": "0.0.0",
+  "description": "Event subscriptions for Claude Code sessions",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kapture-AI/sessionhook.git"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "bin": {
+    "sessionhook": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test \"dist/**/*.test.js\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^7.0.2"
+  }
+}
