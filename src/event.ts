@@ -25,3 +25,11 @@ export function parseTopic(topic: string): Topic {
   }
   return { source: match[1]!, key: match[2]! };
 }
+
+// The text a session reads, so each event is a short block with the summary last.
+export function formatEvent(event: EventRecord): string {
+  const byline = [event.actor.name && `by ${event.actor.name}`, event.at].filter(Boolean).join(" at ");
+  return [`#${event.seq} ${event.topic} ${event.type}`, byline, event.url, event.summary]
+    .filter((line) => line !== "")
+    .join("\n");
+}
