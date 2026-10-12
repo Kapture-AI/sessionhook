@@ -3,37 +3,61 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { request } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startBrokerFromFiles, type Broker } from "./broker.js";
 import type { EventRecord } from "./event.js";
-import { resolvePaths } from "./paths.js";
+import { ensureStateDir, resolvePaths } from "./paths.js";
+import type { JiraRuntime } from "./sources/jiraPoller.js";
+import { EventStore } from "./store.js";
 import { fixture, site } from "./sources/jiraFixtures.test.js";
 
 const webhookSecret = "fake-jira-webhook-secret";
+const apiToken = "fake-jira-api-token";
+// The moment the poller considers itself started, a minute after the window the fixtures fall in.
+const startedAt = Date.parse("2026-10-12T09:31:00Z");
+const cliPath = new URL("./cli.js", import.meta.url).pathname;
 const root = mkdtempSync(join(tmpdir(), "sessionhook-jira-"));
 after(() => rmSync(root, { recursive: true, force: true }));
 
 const jiraSource = { type: "jira", site, webhookSecret: "TEST_JIRA_WEBHOOK_SECRET" };
 
+type BrokerOptions = {
+  // Topics the subscriber "watcher" holds before the broker starts, so that its first poll already has work.
+  subscriptions?: string[];
+  runtime?: JiraRuntime;
+};
+
 let brokerCount = 0;
 async function withBroker(
   sources: Record<string, object>,
-  run: (broker: Broker, lines: string[]) => Promise<void>,
+  run: (broker: Broker, lines: string[], environment: Record<string, string>) => Promise<void>,
+  options: BrokerOptions = {},
 ): Promise<void> {
   const directory = join(root, `broker-${brokerCount++}`);
   mkdirSync(join(directory, "config"), { recursive: true });
   writeFileSync(join(directory, "config", "config.json"), JSON.stringify({ listen: { port: 0 }, sources }));
-  const paths = resolvePaths({
+  const environment = {
     SESSIONHOOK_CONFIG_DIR: join(directory, "config"),
     SESSIONHOOK_STATE_DIR: join(directory, "state"),
-  });
+  };
+  const paths = resolvePaths(environment);
+  if (options.subscriptions) {
+    ensureStateDir(paths);
+    const seed = new EventStore(paths.databaseFile);
+    for (const topic of options.subscriptions) seed.subscribe("watcher", topic);
+    seed.close();
+  }
   const lines: string[] = [];
-  const broker = await startBrokerFromFiles(paths, { TEST_JIRA_WEBHOOK_SECRET: webhookSecret }, (line) => lines.push(line));
+  const secrets = { TEST_JIRA_WEBHOOK_SECRET: webhookSecret, TEST_JIRA_TOKEN: apiToken };
+  const runtime = { now: () => startedAt, ...options.runtime };
+  const broker = await startBrokerFromFiles(paths, secrets, (line) => lines.push(line), runtime);
   try {
-    await run(broker, lines);
+    await run(broker, lines, environment);
   } finally {
     await broker.stop();
   }
@@ -149,4 +173,164 @@ test("webhook mode drops a comment from an actor outside the allowlist, on the i
     assert.equal(await post(broker, "jira-marker", ada), 200);
     assert.equal(stored(broker, "watcher").length, 3);
   });
+});
+
+const pollSource = { type: "jira", site, email: "ada@example.com", token: "TEST_JIRA_TOKEN", poll: {} };
+
+type SearchResponse = ReturnType<typeof searchResponse>;
+function searchResponse() {
+  return fixture("poll-search");
+}
+
+// Replays the recorded search for every request and counts them. A gate holds the first answer back when a test needs it.
+function recordedJira(response: SearchResponse = searchResponse(), gate: Promise<void> = Promise.resolve()) {
+  const requests: Array<{ url: string; authorization: string | null }> = [];
+  const fetchJira: typeof fetch = async (input, init) => {
+    requests.push({ url: String(input), authorization: new Headers(init?.headers).get("authorization") });
+    await gate;
+    return new Response(JSON.stringify(response));
+  };
+  return { requests, fetchJira };
+}
+
+async function until(condition: () => boolean, what: string): Promise<void> {
+  for (let attempt = 0; attempt < 200 && !condition(); attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.ok(condition(), `timed out waiting for ${what}`);
+}
+
+function withoutSeq({ seq: _, ...event }: EventRecord) {
+  return event;
+}
+
+test("poll mode delivers a new comment with the commenter, the ticket and a link to the comment", async () => {
+  const jira = recordedJira();
+  await withBroker({ jira: pollSource }, async (_broker, _lines, environment) => {
+    const waiting = spawn(process.execPath, [cliPath, "wait", "--json", "--name", "watcher"], {
+      env: environment,
+      stdio: ["ignore", "pipe", "inherit"],
+    });
+    let output = "";
+    waiting.stdout.on("data", (chunk: Buffer) => (output += chunk.toString()));
+    await once(waiting, "close");
+    const events = output.split("\n").filter(Boolean).map((line) => JSON.parse(line) as EventRecord);
+    const comment = events.find((event) => event.type === "comment_created")!;
+    assert.equal(comment.actor.name, "Ada Lovelace");
+    assert.equal(comment.topic, "jira:PROJ-123");
+    assert.equal(comment.url, "https://example.atlassian.net/browse/PROJ-123?focusedCommentId=20001");
+  }, { subscriptions: ["jira:PROJ-123"], runtime: { fetch: jira.fetchJira } });
+});
+
+test("poll mode stores a status change as an event naming the changed field", async () => {
+  const jira = recordedJira();
+  await withBroker({ jira: pollSource }, async (broker) => {
+    await until(() => broker.store.unread("watcher", 100).length === 3, "the poll to store its events");
+    const change = broker.store.unread("watcher", 100).find((event) => event.type === "issue_updated")!;
+    assert.match(change.summary, /^status: To Do -> In Progress$/m);
+    assert.equal(change.actor.name, "Ada Lovelace");
+  }, { subscriptions: ["jira:PROJ-123"], runtime: { fetch: jira.fetchJira } });
+});
+
+test("poll mode makes no API request when nothing is subscribed", async () => {
+  const jira = recordedJira();
+  await withBroker({ jira: pollSource }, async (broker) => {
+    broker.store.subscribe("watcher", "other:ABC-1");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    assert.equal(jira.requests.length, 0);
+  }, { runtime: { fetch: jira.fetchJira } });
+});
+
+test("poll mode sends the user's token to the site and nowhere else", async () => {
+  const jira = recordedJira();
+  await withBroker({ jira: pollSource }, async (_broker, lines) => {
+    await until(() => jira.requests.length > 0, "the first request");
+    assert.equal(jira.requests[0]!.url, "https://example.atlassian.net/rest/api/3/search/jql");
+    assert.equal(jira.requests[0]!.authorization, `Basic ${Buffer.from(`ada@example.com:${apiToken}`).toString("base64")}`);
+    assert.ok(!lines.join("\n").includes(apiToken));
+  }, { subscriptions: ["jira:PROJ-123"], runtime: { fetch: jira.fetchJira } });
+});
+
+test("a webhook and a poll describing the same comment store the same event record", async () => {
+  const jira = recordedJira();
+  let polled: EventRecord | undefined;
+  await withBroker({ jira: pollSource }, async (broker) => {
+    await until(() => broker.store.unread("watcher", 100).length === 3, "the poll to store its events");
+    polled = broker.store.unread("watcher", 100).find((event) => event.id === "jira:comment:20001");
+  }, { subscriptions: ["jira:PROJ-123"], runtime: { fetch: jira.fetchJira } });
+
+  await withBroker({ jira: jiraSource }, async (broker) => {
+    broker.store.subscribe("watcher", "jira:PROJ-123");
+    assert.equal(await post(broker, "jira", fixture("webhook-comment-created")), 200);
+    const hooked = stored(broker, "watcher")[0]!;
+    assert.deepEqual(withoutSeq(hooked), withoutSeq(polled!));
+  });
+});
+
+test("with both modes on for one ticket a comment is stored once, whichever mode is first", async () => {
+  const both = { ...pollSource, webhookSecret: "TEST_JIRA_WEBHOOK_SECRET" };
+  const commentCount = (broker: Broker) =>
+    broker.store.unread("watcher", 100).filter((event) => event.id === "jira:comment:20001").length;
+
+  await withBroker({ jira: both }, async (broker) => {
+    await until(() => commentCount(broker) === 1, "the poll to store the comment");
+    assert.equal(await post(broker, "jira", fixture("webhook-comment-created")), 200);
+    assert.equal(commentCount(broker), 1);
+  }, { subscriptions: ["jira:PROJ-123"], runtime: { fetch: recordedJira().fetchJira } });
+
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const held = recordedJira(searchResponse(), gate);
+  await withBroker({ jira: both }, async (broker) => {
+    await until(() => held.requests.length === 1, "the poll to ask Jira");
+    assert.equal(await post(broker, "jira", fixture("webhook-comment-created")), 200);
+    assert.equal(commentCount(broker), 1);
+    release();
+    await until(() => broker.store.unread("watcher", 100).length === 3, "the poll to finish");
+    assert.equal(commentCount(broker), 1);
+  }, { subscriptions: ["jira:PROJ-123"], runtime: { fetch: held.fetchJira } });
+});
+
+test("poll mode drops events from an actor outside the allowlist, on the ignore list or carrying the marker", async () => {
+  const filtered = (lines: string[]) => lines.filter((line) => line.startsWith("filtered ")).length;
+  const options = (response: SearchResponse = searchResponse()) => ({
+    subscriptions: ["jira:PROJ-123"],
+    runtime: { fetch: recordedJira(response).fetchJira },
+  });
+
+  await withBroker({ jira: { ...pollSource, allowActors: ["Grace Hopper"] } }, async (broker, lines) => {
+    await until(() => filtered(lines) === 3, "all three events to be filtered");
+    assert.deepEqual(broker.store.unread("watcher", 100), []);
+  }, options());
+
+  await withBroker({ jira: { ...pollSource, ignoreActors: ["5b10a2844c20165700ede21g"] } }, async (broker, lines) => {
+    await until(() => filtered(lines) === 3, "all three events to be filtered");
+    assert.deepEqual(broker.store.unread("watcher", 100), []);
+  }, options());
+
+  const marked = searchResponse();
+  marked.issues[0].fields.comment.comments[2].body.content[0].content[0].text += " [agent]";
+  await withBroker({ jira: { ...pollSource, ignoreMarker: "[agent]" } }, async (broker, lines) => {
+    await until(() => lines.filter((line) => line.startsWith("stored ")).length === 2, "the other events to be stored");
+    assert.equal(filtered(lines), 1);
+    assert.ok(!broker.store.unread("watcher", 100).some((event) => event.id === "jira:comment:20001"));
+  }, options(marked));
+
+  await withBroker({ jira: { ...pollSource, allowActors: ["Ada Lovelace"] } }, async (broker) => {
+    await until(() => broker.store.unread("watcher", 100).length === 3, "the allowed events to be stored");
+  }, options());
+});
+
+test("serve names each Jira source with its modes", async () => {
+  const both = { ...pollSource, poll: { intervalSeconds: 45 }, webhookSecret: "TEST_JIRA_WEBHOOK_SECRET" };
+  await withBroker({ jira: both, "jira-hooks": jiraSource, "jira-poll": pollSource }, async (_broker, lines) => {
+    assert.ok(lines.includes("jira source jira (https://example.atlassian.net): poll every 45 seconds, webhook at /hooks/jira"));
+    assert.ok(lines.includes("jira source jira-hooks (https://example.atlassian.net): webhook at /hooks/jira-hooks"));
+    assert.ok(lines.includes("jira source jira-poll (https://example.atlassian.net): poll every 30 seconds"));
+  }, { runtime: { fetch: recordedJira().fetchJira } });
+});
+
+test("a poll source whose token cannot be found stops the broker from starting and names the secret", async () => {
+  const missing = { ...pollSource, token: "TEST_MISSING_TOKEN" };
+  await assert.rejects(withBroker({ jira: missing }, async () => {}), /needs the secret "TEST_MISSING_TOKEN"/);
 });
