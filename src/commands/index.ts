@@ -1,3 +1,4 @@
+import { channel } from "./channel.js";
 import { tail, wait } from "./delivery.js";
 import { replay } from "./replay.js";
 import { serve } from "./serve.js";
@@ -20,6 +21,10 @@ export const commands: Record<string, Command> = {
   status: { summary: "List subscribers, their topics and unread counts", run: status },
   wait: { summary: "Block until there are unread events, print them and exit", run: wait },
   tail: { summary: "Stream events as they arrive", run: tail },
+  channel: {
+    summary: "Claude Code starts this to deliver events into a session, do not run it by hand",
+    run: channel,
+  },
   replay: { summary: "Send stored events to a subscriber again", run: replay },
   spawn: { summary: "Start a tmux session running Claude Code, subscribed to a topic" },
 };

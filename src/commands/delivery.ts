@@ -1,18 +1,10 @@
 import { parseArgs } from "node:util";
 import type { BrokerClient } from "../client.js";
-import type { EventRecord } from "../event.js";
+import { formatEvent, type EventRecord } from "../event.js";
 import { resolveSubscriberName } from "../subscriber.js";
 import { brokerClient } from "./shared.js";
 
 const pollSeconds = 25;
-
-// The text a session reads, so each event is a short block with the summary last.
-export function formatEvent(event: EventRecord): string {
-  const byline = [event.actor.name && `by ${event.actor.name}`, event.at].filter(Boolean).join(" at ");
-  return [`#${event.seq} ${event.topic} ${event.type}`, byline, event.url, event.summary]
-    .filter((line) => line !== "")
-    .join("\n");
-}
 
 function parseDeliveryArgs(args: string[]) {
   const { values } = parseArgs({

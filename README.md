@@ -4,7 +4,7 @@ sessionhook delivers outside events, such as a comment on a Jira ticket, to runn
 
 ## Status
 
-The broker, the generic signed webhook source and command line delivery work. The Jira source, polling, delivery into a Claude Code session as a channel, and the `init`, `doctor` and `spawn` commands are not there yet, and those commands print that they are not implemented.
+The broker, the generic signed webhook source, command line delivery and delivery into a Claude Code session as a channel work. The Jira source, polling, and the `init`, `doctor` and `spawn` commands are not there yet, and those commands print that they are not implemented.
 
 ## Requirements
 
@@ -126,6 +126,55 @@ Release 1.2 is live
 `tail` does the same without exiting. `wait --json` and `tail --json` print one JSON object per line instead.
 
 `replay --from <seq>` moves the subscriber's cursor back so that events from that sequence number are delivered again by `wait` or `tail`, and prints how many are now unread. It does not reach back before the subscription was made.
+
+## Channel delivery
+
+A channel pushes events into a running Claude Code session as messages, with no watcher process to arm. Claude Code starts `sessionhook channel` as an MCP server for the session, the server follows the broker for the session's subscriber name, and each event becomes one channel message.
+
+Channels need Claude Code 2.1.80 or later. They are a research preview, so a server that is not on Anthropic's allowlist loads only through the development flag described below. Organisations on Claude Team or Enterprise have channels off until an owner enables them. If that is you, use `sessionhook wait` instead, which needs nothing from Claude Code.
+
+Register the server once. This is a manual step until `init` exists.
+
+```sh
+claude mcp add --scope user sessionhook -- sessionhook channel
+```
+
+Start the session with the development flag. The flag takes a list, so the prompt must come before it.
+
+```sh
+claude "Wait for channel messages." --dangerously-load-development-channels server:sessionhook
+```
+
+Claude Code shows a full-screen dialog, "WARNING: Loading development channels", on every start, including `--resume`. Option 1 is preselected, so Enter accepts it. A project that registers the server in its own `.mcp.json` also asks once whether to use that server, and that prompt defaults to not using it. The flag is ignored in non-interactive mode (`-p`), so a channel needs an interactive session.
+
+The subscriber name is `SESSIONHOOK_SUBSCRIBER` if set, otherwise the session id that Claude Code passes to the server as `CLAUDE_CODE_SESSION_ID`. The id stays the same across `--resume`, so a resumed session keeps its subscriptions and catches up on what it missed. With neither variable set the server still starts, writes the reason to stderr, and every tool call returns an error that says so.
+
+The session gets three tools.
+
+| Tool | What it does |
+|---|---|
+| `subscribe` | Takes a `topic` such as `deploys:acme/web`. Events that arrive after the call are delivered. |
+| `unsubscribe` | Takes a `topic` and stops delivery for it. |
+| `list_subscriptions` | Takes no arguments. Returns this session's topics and its unread count, never another session's. |
+
+A tool call that fails, for an invalid topic or a stopped broker, comes back as an error result with a message that says what to do, and the server keeps running. A session that has not subscribed to anything yet is idle, and the server checks again every 5 seconds or at once when `subscribe` succeeds.
+
+The session sees each event as a `<channel source="sessionhook" ...>` message. The body is the same block that `wait` prints, and the tag carries the attributes `topic`, `event_type`, `seq`, `actor`, `at` and `url`, left out when empty.
+
+```
+<channel source="sessionhook" topic="deploys:acme/web" event_type="deployed" seq="12" actor="Ada Lovelace" at="2026-10-12T10:00:00.000Z" url="https://example.com/deploys/1">
+#12 deploys:acme/web deployed
+by Ada Lovelace at 2026-10-12T10:00:00.000Z
+https://example.com/deploys/1
+Release 1.2 is live
+</channel>
+```
+
+Delivery into Claude Code is at-least-once. The server acknowledges an event only after its notification is written, so a crash in between sends it again. Claude Code does not confirm that the model processed a message, so a message can still be lost to the session in a crash at that moment. The event stays stored and `sessionhook replay --from <seq>` sends it again. Events that arrive while Claude is busy are queued and delivered on its next turn.
+
+If the broker is not running, the server logs one line to stderr, retries with a delay that grows from 1 second to 15 seconds, logs one line when the broker is back and carries on. The cursor lives in the broker, so nothing is lost in between, and `sessionhook status` shows the session's last seen time moving while its channel is alive.
+
+A subscribed session acts on text written by other people. A comment on a ticket can ask the model to do things, and the model may do them. The control is the actor allowlist on each source, which decides whose events reach any session. Combined with `--dangerously-skip-permissions`, anyone on the allowlist can drive the session, so keep the list to people you would give a shell.
 
 ## Delivery guarantee
 
