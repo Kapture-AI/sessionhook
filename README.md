@@ -92,6 +92,7 @@ The `jira` source type turns comments and field changes on Jira Cloud tickets in
       "token": "JIRA_API_TOKEN",
       "poll": { "intervalSeconds": 30 },
       "webhookSecret": "JIRA_WEBHOOK_SECRET",
+      "ignoreFields": [],
       "allowActors": [],
       "ignoreActors": [],
       "ignoreMarker": ""
@@ -107,6 +108,7 @@ The `jira` source type turns comments and field changes on Jira Cloud tickets in
 | `token` | The name of a secret that holds the API token, never the token itself. Needed when `poll` is set. |
 | `poll` | Turns on poll mode. `intervalSeconds` defaults to 30 and cannot be below 5. Write `"poll": {}` for the defaults. |
 | `webhookSecret` | The name of a secret that holds the webhook secret, never the secret itself. Setting it turns on webhook mode. Without it the source answers every request to its webhook path with 401. |
+| `ignoreFields` | Names of changed fields, exactly as Jira sends them, such as `Attachment` or `Rank`. Changes to these fields are left out of `issue_updated` events. Default is an empty list. |
 | `allowActors`, `ignoreActors`, `ignoreMarker` | The filters described under Configuration. Actors are matched by Atlassian account id or display name. |
 
 At least one of `poll` and `webhookSecret` is required. The topic of an event is the source name, a colon and the ticket key, so with the source named `jira` a ticket is `jira:PROJ-123`. A subscription to anything else under the `jira` source, such as `jira:proj-123`, never matches, and in poll mode the broker logs that once.
@@ -180,6 +182,8 @@ resolution: none -> Done
 ### Filters
 
 The filters from Configuration apply to Jira events in both modes. `allowActors` limits who can wake a session, `ignoreActors` silences accounts such as bots, and `ignoreMarker` exists for agents that post comments under a human's account. Have the agent end each comment with a fixed text such as `[agent]` and set `ignoreMarker` to that text, so the agent's own comments do not wake the sessions subscribed to the ticket.
+
+`ignoreFields` is a filter for `issue_updated` events only, and it applies in both modes. A listed field is left out of the summary, and an update whose changed fields are all listed produces no event, though the webhook is still answered 200. An agent that uploads files to a ticket under a human's account makes updates that contain only `Attachment`, which would wake the session that made them. Moving cards on a board makes `Rank` updates that nobody needs to read. Listing these two fields silences both.
 
 ### Getting a public address for webhook mode
 
