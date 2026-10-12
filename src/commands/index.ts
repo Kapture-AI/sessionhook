@@ -2,6 +2,7 @@ import { channel } from "./channel.js";
 import { tail, wait } from "./delivery.js";
 import { replay } from "./replay.js";
 import { serve } from "./serve.js";
+import { service } from "./service.js";
 import { status } from "./status.js";
 import { subscribe, unsubscribe } from "./subscribe.js";
 
@@ -25,6 +26,7 @@ export const commands: Record<string, Command> = {
     summary: "Claude Code starts this to deliver events into a session, do not run it by hand",
     run: channel,
   },
+  service: { summary: "Install, remove or check the broker as a login service", run: service },
   replay: { summary: "Send stored events to a subscriber again", run: replay },
   spawn: { summary: "Start a tmux session running Claude Code, subscribed to a topic" },
 };
