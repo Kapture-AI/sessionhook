@@ -9,6 +9,7 @@ import { ensureStateDir, type Paths } from "./paths.js";
 import { lookupSecret } from "./secrets.js";
 import type { Source } from "./source.js";
 import { JiraSource } from "./sources/jira.js";
+import { JiraPoller, type JiraRuntime } from "./sources/jiraPoller.js";
 import { WebhookSource } from "./sources/webhook.js";
 import { EventStore } from "./store.js";
 
@@ -18,6 +19,8 @@ export type BrokerOptions = {
   paths: Paths;
   config: Config;
   sources: Record<string, Source>;
+  // The API token of each Jira source that polls, by source name.
+  jira?: JiraRuntime & { tokens: Record<string, string> };
   log: (line: string) => void;
 };
 
@@ -45,6 +48,7 @@ export class Broker {
   private readonly webhookServer: Server;
   private readonly localApiServer: Server;
   private readonly readers = new Set<() => void>();
+  private readonly pollers: JiraPoller[] = [];
   private stopping = false;
 
   private constructor(
@@ -62,6 +66,7 @@ export class Broker {
     const broker = new Broker(options, new EventStore(options.paths.databaseFile));
     try {
       await broker.listen();
+      broker.startPollers();
     } catch (error) {
       await broker.stop();
       throw error;
@@ -117,6 +122,7 @@ export class Broker {
 
   async stop(): Promise<void> {
     this.stopping = true;
+    await Promise.all(this.pollers.map((poller) => poller.stop()));
     this.wakeReaders();
     // Lets the woken long-polls write their empty replies before the connections are cut.
     await new Promise((resolve) => setImmediate(resolve));
@@ -133,6 +139,37 @@ export class Broker {
     const names = Object.keys(this.options.sources).join(", ") || "none";
     this.options.log(`webhook listener on http://${host}:${this.webhookPort}, sources: ${names}`);
     this.options.log(`local API on ${socketFile}`);
+    for (const [name, source] of Object.entries(this.options.config.sources)) {
+      if (source.type !== "jira") continue;
+      const modes = [
+        source.poll && `poll every ${source.poll.intervalSeconds} seconds`,
+        source.webhookSecret && `webhook at /hooks/${name}`,
+      ];
+      this.options.log(`jira source ${name} (${source.site}): ${modes.filter(Boolean).join(", ")}`);
+    }
+  }
+
+  private startPollers(): void {
+    const { config, jira } = this.options;
+    for (const [name, source] of Object.entries(config.sources)) {
+      if (source.type !== "jira" || source.poll === undefined) continue;
+      const token = jira?.tokens[name];
+      if (token === undefined || source.email === undefined) throw new Error(`source "${name}" has no API token to poll with`);
+      const poller = new JiraPoller({
+        fetch: jira?.fetch,
+        now: jira?.now,
+        name,
+        site: source.site,
+        email: source.email,
+        token,
+        intervalMs: source.poll.intervalSeconds * 1000,
+        store: this.store,
+        intake: (events) => this.intake(name, events),
+        log: this.options.log,
+      });
+      this.pollers.push(poller);
+      poller.start();
+    }
   }
 
   private nextWake(milliseconds: number, aborted: AbortSignal): Promise<void> {
@@ -172,15 +209,21 @@ function createSource(name: string, config: SourceConfig, paths: Paths, env: Nod
   return new WebhookSource(name, config, requireSecret(name, config.signature.secret, paths, env));
 }
 
-// Reads the config and resolves every source's secret before anything is opened or bound.
+// Reads the config and resolves every source's secrets before anything is opened or bound.
 export async function startBrokerFromFiles(
   paths: Paths,
   env: NodeJS.ProcessEnv,
   log: (line: string) => void,
+  jiraRuntime: JiraRuntime = {},
 ): Promise<Broker> {
   const config = loadConfig(paths.configFile);
   const sources = Object.fromEntries(
     Object.entries(config.sources).map(([name, source]) => [name, createSource(name, source, paths, env)]),
   );
-  return Broker.start({ paths, config, sources, log });
+  const tokens = Object.fromEntries(
+    Object.entries(config.sources).flatMap(([name, source]) =>
+      source.type === "jira" && source.poll ? [[name, requireSecret(name, source.token!, paths, env)]] : [],
+    ),
+  );
+  return Broker.start({ paths, config, sources, jira: { ...jiraRuntime, tokens }, log });
 }
