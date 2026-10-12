@@ -1,0 +1,32 @@
+name: publish
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - name: Install an npm that supports trusted publishing
+        run: |
+          npm install --global npm@11
+          npm --version
+      - run: npm ci
+      - run: npm test
+      - name: Check that the ref is the tag for this version
+        run: |
+          version="$(node --print "require('./package.json').version")"
+          if [ "${GITHUB_REF_TYPE}" != "tag" ] || [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "Run this workflow on the tag v${version}, not on ${GITHUB_REF_TYPE} ${GITHUB_REF_NAME}." >&2
+            exit 1
+          fi
+      - run: npm publish
