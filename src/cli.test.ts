@@ -42,7 +42,7 @@ test("an unknown option exits non-zero", () => {
 });
 
 test("a command that is not implemented yet exits non-zero", () => {
-  const result = run("doctor");
+  const result = run("spawn");
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /"doctor" is not implemented yet/);
+  assert.match(result.stderr, /"spawn" is not implemented yet/);
 });

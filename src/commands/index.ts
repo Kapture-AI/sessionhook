@@ -1,4 +1,5 @@
 import { channel } from "./channel.js";
+import { doctor } from "./doctor.js";
 import { init } from "./init.js";
 import { tail, wait } from "./delivery.js";
 import { replay } from "./replay.js";
@@ -17,7 +18,7 @@ export type Command = {
 export const commands: Record<string, Command> = {
   init: { summary: "Write the config, register the MCP server and print webhook settings", run: init },
   serve: { summary: "Run the broker", run: serve },
-  doctor: { summary: "Check the broker, the Jira token and the public webhook URL" },
+  doctor: { summary: "Check the broker, the Jira token and the public webhook URL", run: doctor },
   subscribe: { summary: "Subscribe to a topic", run: subscribe },
   unsubscribe: { summary: "Remove a subscription", run: unsubscribe },
   status: { summary: "List subscribers, their topics and unread counts", run: status },

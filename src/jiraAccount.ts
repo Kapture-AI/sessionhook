@@ -1,13 +1,10 @@
+import { describeFetchError } from "./fetchError.js";
+
 export type AccountCheck =
   | { ok: true; displayName: string }
   | { ok: false; kind: "rejected" | "unreachable" | "unexpected"; message: string };
 
 const timeoutMs = 10_000;
-
-function causeOf(error: unknown): string {
-  const cause = (error as { cause?: { code?: string; message?: string } }).cause;
-  return cause?.code ?? cause?.message ?? (error as Error).message;
-}
 
 // Asks Jira who the credentials belong to. The token goes into the request and nowhere else.
 export async function checkJiraAccount(
@@ -26,7 +23,7 @@ export async function checkJiraAccount(
       signal: AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
-    return { ok: false, kind: "unreachable", message: `Jira could not be reached at ${site} (${causeOf(error)})` };
+    return { ok: false, kind: "unreachable", message: `Jira could not be reached at ${site} (${describeFetchError(error)})` };
   }
   if (response.status === 401 || response.status === 403) {
     return {
