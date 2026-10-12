@@ -219,7 +219,7 @@ If Jira cannot be reached or refuses the token, the broker keeps running and ret
 
 ### Webhook mode
 
-Webhook mode is instant and needs Jira to reach the broker, so the listener needs a public address (see below). Jira posts to `https://<your host>/hooks/jira`, where `jira` is the source name.
+Webhook mode is instant and needs Jira to reach the broker, so the listener needs a public address (see below). Jira posts to `https://<your host>/hooks/jira`, where `jira` is the source name. Jira appends its own query parameters to the URL, and the listener ignores them.
 
 In Jira, open Settings, System, WebHooks and create a webhook. Set the URL, put the same string as the secret that `webhookSecret` names, and tick these events.
 
