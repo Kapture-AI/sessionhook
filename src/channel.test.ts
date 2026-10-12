@@ -154,7 +154,7 @@ test("the initialize result declares the channel capability, the tools and the i
   const session = await Session.start("init-one");
   assert.deepEqual(session.client.getServerCapabilities()?.experimental?.["claude/channel"], {});
   assert.match(session.client.getInstructions() ?? "", /outside events/);
-  assert.match(session.client.getInstructions() ?? "", /written by other people/);
+  assert.match(session.client.getInstructions() ?? "", /written by the person named as its actor/);
   const { tools } = await session.client.listTools();
   assert.deepEqual(tools.map((tool) => tool.name), ["subscribe", "unsubscribe", "list_subscriptions"]);
   for (const tool of tools) assert.ok(tool.description && tool.inputSchema.type === "object", tool.name);
