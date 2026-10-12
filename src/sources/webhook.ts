@@ -1,10 +1,10 @@
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHash } from "node:crypto";
 import type { WebhookSourceConfig } from "../config.js";
 import { parseTopic, type NewEvent } from "../event.js";
+import { hasValidSignature } from "../signature.js";
 import { BadPayloadError, type InboundRequest, type Source } from "../source.js";
 
 const summaryLimit = 2000;
-const sha256Hex = /^[0-9a-f]{64}$/i;
 
 function valueAt(body: unknown, path: string): string | undefined {
   let current = body;
@@ -31,13 +31,8 @@ export class WebhookSource implements Source {
   ) {}
 
   authenticate(request: InboundRequest): boolean {
-    const header = request.headers[this.config.signature.header];
-    const { prefix } = this.config.signature;
-    if (typeof header !== "string" || !header.startsWith(prefix)) return false;
-    const received = header.slice(prefix.length);
-    if (!sha256Hex.test(received)) return false;
-    const expected = createHmac("sha256", this.secret).update(request.rawBody).digest();
-    return timingSafeEqual(expected, Buffer.from(received, "hex"));
+    const { header, prefix } = this.config.signature;
+    return hasValidSignature(request.headers[header], prefix, this.secret, request.rawBody);
   }
 
   parse(request: InboundRequest): NewEvent[] {

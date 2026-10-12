@@ -72,6 +72,10 @@ export class EventStore {
         since_seq INTEGER NOT NULL,
         PRIMARY KEY (subscriber, topic)
       );
+      CREATE TABLE IF NOT EXISTS state (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
     `);
   }
 
@@ -174,6 +178,18 @@ export class EventStore {
       .prepare("SELECT DISTINCT topic FROM subscriptions ORDER BY topic")
       .all()
       .map((row) => String(row.topic));
+  }
+
+  // Small values the broker keeps between runs, such as how far a poller has read.
+  getState(key: string): string | undefined {
+    const row = this.db.prepare("SELECT value FROM state WHERE key = ?").get(key);
+    return row === undefined ? undefined : String(row.value);
+  }
+
+  setState(key: string, value: string): void {
+    this.db
+      .prepare("INSERT INTO state (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value")
+      .run(key, value);
   }
 
   private latestSeq(): number {

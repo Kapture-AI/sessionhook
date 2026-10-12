@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Broker } from "./broker.js";
-import { validateConfig } from "./config.js";
+import { validateConfig, type WebhookSourceConfig } from "./config.js";
 import { resolvePaths } from "./paths.js";
 import { WebhookSource } from "./sources/webhook.js";
 
@@ -42,7 +42,7 @@ before(async () => {
     paths,
     config,
     sources: Object.fromEntries(
-      Object.entries(config.sources).map(([name, source]) => [name, new WebhookSource(name, source, secret)]),
+      Object.entries(config.sources).map(([name, source]) => [name, new WebhookSource(name, source as WebhookSourceConfig, secret)]),
     ),
     log: (line) => lines.push(line),
   });
@@ -173,7 +173,7 @@ test("a store failure gets 500 so the sender retries", async () => {
   const failing = await Broker.start({
     paths,
     config,
-    sources: { deploys: new WebhookSource("deploys", config.sources.deploys!, secret) },
+    sources: { deploys: new WebhookSource("deploys", config.sources.deploys as WebhookSourceConfig, secret) },
     log: () => {},
   });
   try {

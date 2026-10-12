@@ -1,0 +1,45 @@
+{
+  "timestamp": 1791797770213,
+  "webhookEvent": "jira:issue_updated",
+  "user": {
+    "accountId": "5b10a2844c20165700ede21g",
+    "displayName": "Ada Lovelace",
+    "active": true,
+    "timeZone": "Asia/Dubai",
+    "accountType": "atlassian"
+  },
+  "issue": {
+    "id": "10100",
+    "self": "https://example.atlassian.net/rest/api/2/issue/10100",
+    "key": "PROJ-123",
+    "fields": {
+      "summary": "Check the deploy pipeline",
+      "status": {
+        "name": "In Progress",
+        "id": "10005"
+      }
+    }
+  },
+  "changelog": {
+    "id": "30001",
+    "items": [
+      {
+        "field": "status",
+        "fieldtype": "jira",
+        "fieldId": "status",
+        "from": "10004",
+        "fromString": "To Do",
+        "to": "10005",
+        "toString": "In Progress"
+      },
+      {
+        "field": "resolution",
+        "fieldtype": "jira",
+        "from": null,
+        "fromString": null,
+        "to": "10000",
+        "toString": "Done"
+      }
+    ]
+  }
+}

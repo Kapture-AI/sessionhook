@@ -1,0 +1,38 @@
+{
+  "self": "https://example.atlassian.net/rest/api/3/issue/10100/comment/20001",
+  "id": "20001",
+  "author": {
+    "accountId": "5b10a2844c20165700ede21g",
+    "emailAddress": "ada@example.com",
+    "displayName": "Ada Lovelace",
+    "active": true,
+    "timeZone": "Asia/Dubai",
+    "accountType": "atlassian"
+  },
+  "body": {
+    "type": "doc",
+    "version": 1,
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "Deploy check passed, safe to ignore."
+          }
+        ]
+      }
+    ]
+  },
+  "updateAuthor": {
+    "accountId": "5b10a2844c20165700ede21g",
+    "emailAddress": "ada@example.com",
+    "displayName": "Ada Lovelace",
+    "active": true,
+    "timeZone": "Asia/Dubai",
+    "accountType": "atlassian"
+  },
+  "created": "2026-10-12T13:56:41.681+0400",
+  "updated": "2026-10-12T13:56:41.681+0400",
+  "jsdPublic": true
+}

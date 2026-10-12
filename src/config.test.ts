@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadConfig, validateConfig } from "./config.js";
+import { loadConfig, validateConfig, type WebhookSourceConfig } from "./config.js";
 
 const validSource = {
   type: "webhook",
@@ -41,7 +41,7 @@ test("a full source keeps every mapped field and filter", () => {
     },
   });
   assert.deepEqual(config.listen, { host: "10.0.0.5", port: 0 });
-  assert.deepEqual(config.sources.deploys!.map, map);
+  assert.deepEqual((config.sources.deploys as WebhookSourceConfig).map, map);
   assert.deepEqual(config.sources.deploys!.allowActors, ["ada"]);
   assert.equal(config.sources.deploys!.ignoreMarker, "[bot]");
 });
@@ -53,7 +53,7 @@ test("errors name the offending key", () => {
     [{ listen: { port: 70000 } }, /^listen\.port must be an integer/],
     [{ listen: { host: 5 } }, /^listen\.host must be a non-empty string/],
     [{ listen: { hots: "x" } }, /^listen\.hots is not a known setting/],
-    [{ sources: { deploys: { ...validSource, type: "jira" } } }, /^sources\.deploys\.type is "jira", only "webhook"/],
+    [{ sources: { deploys: { ...validSource, type: "ftp" } } }, /^sources\.deploys\.type is "ftp", expected "webhook" or "jira"/],
     [{ sources: { deploys: { ...validSource, signature: undefined } } }, /^sources\.deploys\.signature must be an object/],
     [{ sources: { deploys: { ...validSource, signature: { header: "h" } } } }, /^sources\.deploys\.signature\.secret must be a non-empty string/],
     [{ sources: { deploys: { ...validSource, map: {} } } }, /^sources\.deploys\.map\.key must be a non-empty string/],
@@ -92,4 +92,76 @@ test("loading returns a valid file's config", () => {
   const good = join(directory, "good.json");
   writeFileSync(good, JSON.stringify({ sources: { deploys: validSource } }));
   assert.deepEqual(Object.keys(loadConfig(good).sources), ["deploys"]);
+});
+
+const jiraSource = {
+  type: "jira",
+  site: "https://example.atlassian.net",
+  email: "ada@example.com",
+  token: "JIRA_API_TOKEN",
+  poll: {},
+  webhookSecret: "JIRA_WEBHOOK_SECRET",
+};
+
+test("a jira source gets the default poll interval and empty filters", () => {
+  assert.deepEqual(validateConfig({ sources: { jira: jiraSource } }).sources.jira, {
+    type: "jira",
+    site: "https://example.atlassian.net",
+    email: "ada@example.com",
+    token: "JIRA_API_TOKEN",
+    poll: { intervalSeconds: 30 },
+    webhookSecret: "JIRA_WEBHOOK_SECRET",
+    ignoreFields: [],
+    allowActors: [],
+    ignoreActors: [],
+    ignoreMarker: "",
+  });
+});
+
+test("a jira source can poll only or take webhooks only", () => {
+  const { webhookSecret: _, ...pollOnly } = jiraSource;
+  const polling = validateConfig({ sources: { jira: { ...pollOnly, poll: { intervalSeconds: 5 } } } }).sources.jira;
+  assert.deepEqual((polling as { poll: object }).poll, { intervalSeconds: 5 });
+  assert.equal("webhookSecret" in polling!, false);
+
+  const { poll: __, email: ___, token: ____, ...webhookOnly } = jiraSource;
+  const hooked = validateConfig({ sources: { jira: webhookOnly } }).sources.jira!;
+  assert.equal("poll" in hooked, false);
+  assert.equal("email" in hooked, false);
+});
+
+test("a jira site is reduced to its origin and a trailing slash is accepted", () => {
+  const config = validateConfig({ sources: { jira: { ...jiraSource, site: "https://example.atlassian.net/" } } });
+  assert.equal((config.sources.jira as { site: string }).site, "https://example.atlassian.net");
+});
+
+test("jira source errors name the offending key", () => {
+  const withJira = (changes: object) => ({ sources: { jira: { ...jiraSource, ...changes } } });
+  const cases: Array<[unknown, RegExp]> = [
+    [withJira({ site: undefined }), /^sources\.jira\.site must be a non-empty string/],
+    [withJira({ site: "http://example.atlassian.net" }), /^sources\.jira\.site must be an https origin with no path/],
+    [withJira({ site: "https://example.atlassian.net/jira" }), /^sources\.jira\.site must be an https origin with no path/],
+    [withJira({ site: "https://user@example.atlassian.net" }), /^sources\.jira\.site must be an https origin/],
+    [withJira({ site: "not a url" }), /^sources\.jira\.site must be an https address/],
+    [withJira({ poll: { intervalSeconds: 4 } }), /^sources\.jira\.poll\.intervalSeconds must be an integer of at least 5/],
+    [withJira({ poll: { intervalSeconds: "30" } }), /^sources\.jira\.poll\.intervalSeconds must be an integer/],
+    [withJira({ poll: { interval: 30 } }), /^sources\.jira\.poll\.interval is not a known setting/],
+    [withJira({ poll: 30 }), /^sources\.jira\.poll must be an object/],
+    [withJira({ email: undefined }), /^sources\.jira\.email must be a non-empty string/],
+    [withJira({ token: undefined }), /^sources\.jira\.token must be a non-empty string/],
+    [withJira({ poll: undefined, webhookSecret: undefined }), /^sources\.jira\.poll or sources\.jira\.webhookSecret is needed/],
+    [withJira({ webhookSecret: "" }), /^sources\.jira\.webhookSecret must be a non-empty string/],
+    [withJira({ signature: {} }), /^sources\.jira\.signature is not a known setting/],
+    [withJira({ ignoreFields: "Rank" }), /^sources\.jira\.ignoreFields must be a list/],
+    [withJira({ ignoreFields: [""] }), /^sources\.jira\.ignoreFields must be a list/],
+    [withJira({ allowActors: "ada" }), /^sources\.jira\.allowActors must be a list/],
+  ];
+  for (const [raw, message] of cases) {
+    assert.throws(() => validateConfig(raw), { message }, JSON.stringify(raw));
+  }
+});
+
+test("ignoreFields is kept as written", () => {
+  const config = validateConfig({ sources: { jira: { ...jiraSource, ignoreFields: ["Attachment", "Rank"] } } });
+  assert.deepEqual((config.sources.jira as { ignoreFields: string[] }).ignoreFields, ["Attachment", "Rank"]);
 });
