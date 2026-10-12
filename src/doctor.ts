@@ -112,10 +112,18 @@ async function checkClaude(deps: DoctorDeps): Promise<CheckResult> {
   const name = "claude code";
   try {
     const version = await deps.claude.version();
-    if (!supportsChannels(version)) return fail(name, `${version} is too old for channels, 2.1.80 or later is needed`);
+    const channelsSupported = supportsChannels(version);
+    // Someone who registered the server expects channels to work, so only then is an old version a failure.
     if (!(await deps.claude.hasServer())) {
-      return fail(name, `${version}, but the sessionhook channel server is not registered, run \`sessionhook init\` or: ${deps.registerCommand}`);
+      const reason = channelsSupported
+        ? `${version}, but the sessionhook channel server is not registered`
+        : `${version} is older than 2.1.80 and the sessionhook channel server is not registered`;
+      return skip(
+        name,
+        `${reason}, so channel delivery is not set up. \`sessionhook wait\` works without it. For channel delivery${channelsSupported ? "" : ", use Claude Code 2.1.80 or later and"} run: ${deps.registerCommand}`,
+      );
     }
+    if (!channelsSupported) return fail(name, `${version} is too old for channels, 2.1.80 or later is needed`);
     return ok(name, `${version}, the sessionhook channel server is registered`);
   } catch (error) {
     if (error instanceof CommandNotFoundError) {

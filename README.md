@@ -53,7 +53,7 @@ The token is never accepted as an option, because options show up in `ps` and in
 sessionhook doctor
 ```
 
-`doctor` prints one line per check and exits non-zero when one fails. If you chose not to install the service, start the broker first with `sessionhook serve` in a terminal of its own. The Claude Code check fails when the channel server is not registered, so it fails after `init --no-register` until you run the registration command it prints.
+`doctor` prints one line per check and exits non-zero when one fails. If you chose not to install the service, start the broker first with `sessionhook serve` in a terminal of its own. When the channel server is not registered, for example after `init --no-register`, the Claude Code check is reported as `skip` with the registration command, because `sessionhook wait` works without channels.
 
 ### 3. Start a session on a ticket
 

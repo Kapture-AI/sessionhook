@@ -170,13 +170,23 @@ test("claude states: missing is skipped, too old and unregistered fail", async (
   assert.equal(byName(missing, "claude code").status, "skip");
   assert.match(byName(missing, "claude code").detail, /`sessionhook wait` needs nothing from Claude Code/);
 
-  const old = await runDoctor(deps({ config: pollConfig, claude: { "claude --version": { stdout: "2.1.79 (Claude Code)" } } }));
-  assert.match(byName(old, "claude code").detail, /too old for channels, 2\.1\.80 or later/);
-  assert.equal(byName(old, "claude code").status, "FAIL");
+  const oldRegistered = await runDoctor(deps({ config: pollConfig, claude: { ...healthyClaude, "claude --version": { stdout: "2.1.79 (Claude Code)" } } }));
+  assert.equal(byName(oldRegistered, "claude code").status, "FAIL");
+  assert.match(byName(oldRegistered, "claude code").detail, /too old for channels, 2\.1\.80 or later/);
+
+  const oldUnregistered = await runDoctor(
+    deps({ config: pollConfig, claude: { "claude --version": { stdout: "2.1.79 (Claude Code)" }, "claude mcp get sessionhook": { code: 1 } } }),
+  );
+  assert.equal(byName(oldUnregistered, "claude code").status, "skip");
+  assert.match(byName(oldUnregistered, "claude code").detail, /2\.1\.79 \(Claude Code\) is older than 2\.1\.80 and the sessionhook channel server is not registered, so channel delivery is not set up\. `sessionhook wait` works without it\. For channel delivery, use Claude Code 2\.1\.80 or later and run: claude mcp add/);
 
   const unregistered = await runDoctor(deps({ config: pollConfig, claude: { ...healthyClaude, "claude mcp get sessionhook": { code: 1 } } }));
-  assert.equal(byName(unregistered, "claude code").status, "FAIL");
-  assert.match(byName(unregistered, "claude code").detail, /not registered, run `sessionhook init` or: claude mcp add --scope user/);
+  assert.equal(byName(unregistered, "claude code").status, "skip");
+  assert.match(
+    byName(unregistered, "claude code").detail,
+    /^2\.1\.296 \(Claude Code\), but the sessionhook channel server is not registered, so channel delivery is not set up\. `sessionhook wait` works without it\. For channel delivery run: claude mcp add --scope user/,
+  );
+  assert.deepEqual(unregistered.filter((r) => r.status === "FAIL"), []);
 });
 
 test("the report has one aligned line per check", () => {
