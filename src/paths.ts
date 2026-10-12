@@ -30,3 +30,11 @@ export function resolvePaths(env: NodeJS.ProcessEnv): Paths {
 export function ensureStateDir(paths: Paths): void {
   mkdirSync(paths.stateDir, { recursive: true, mode: 0o700 });
 }
+
+// The variables that move the directories. A program started on the user's behalf, such as the
+// service or a tmux session, is not guaranteed to inherit them, so they are passed on explicitly.
+export function locationEnvironment(env: NodeJS.ProcessEnv): Record<string, string> {
+  return Object.fromEntries(
+    ["SESSIONHOOK_CONFIG_DIR", "SESSIONHOOK_STATE_DIR"].flatMap((name) => (env[name] ? [[name, env[name]]] : [])),
+  );
+}

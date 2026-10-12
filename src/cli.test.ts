@@ -40,9 +40,3 @@ test("an unknown option exits non-zero", () => {
   assert.equal(result.status, 1);
   assert.match(result.stderr, /frobnicate/);
 });
-
-test("a command that is not implemented yet exits non-zero", () => {
-  const result = run("doctor");
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /"doctor" is not implemented yet/);
-});

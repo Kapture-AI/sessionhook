@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ensureStateDir, resolvePaths } from "./paths.js";
+import { ensureStateDir, locationEnvironment, resolvePaths } from "./paths.js";
 
 test("the environment overrides both directories", () => {
   const paths = resolvePaths({ SESSIONHOOK_CONFIG_DIR: "/c", SESSIONHOOK_STATE_DIR: "/s" });
@@ -29,3 +29,11 @@ test("a state directory the broker creates is private", () => {
     rmSync(base, { recursive: true, force: true });
   }
 });
+
+test("only the location variables that are set are passed on", () => {
+  assert.deepEqual(locationEnvironment({ PATH: "/bin", SESSIONHOOK_STATE_DIR: "/data/state" }), {
+    SESSIONHOOK_STATE_DIR: "/data/state",
+  });
+  assert.deepEqual(locationEnvironment({ SESSIONHOOK_CONFIG_DIR: "", HOME: "/home/ada" }), {});
+});
+

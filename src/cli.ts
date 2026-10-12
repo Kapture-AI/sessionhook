@@ -6,11 +6,7 @@ import { readVersion } from "./version.js";
 function usage(): string {
   const names = Object.keys(commands);
   const width = Math.max(...names.map((name) => name.length));
-  const lines = names.map((name) => {
-    const { summary, run } = commands[name]!;
-    const note = run ? "" : " (not yet implemented)";
-    return `  ${name.padEnd(width)}  ${summary}${note}`;
-  });
+  const lines = names.map((name) => `  ${name.padEnd(width)}  ${commands[name]!.summary}`);
   return [
     "Usage: sessionhook <command> [options]",
     "",
@@ -47,9 +43,6 @@ async function main(argv: string[]): Promise<void> {
   const command = Object.hasOwn(commands, first) ? commands[first] : undefined;
   if (!command) {
     throw new Error(`unknown command "${first}", run "sessionhook --help" for the list`);
-  }
-  if (!command.run) {
-    throw new Error(`"${first}" is not implemented yet`);
   }
   await command.run(rest);
 }

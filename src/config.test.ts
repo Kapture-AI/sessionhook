@@ -14,8 +14,18 @@ const validSource = {
 test("an empty config gets the loopback listener and no sources", () => {
   assert.deepEqual(validateConfig({}), {
     listen: { host: "127.0.0.1", port: 8377 },
+    spawn: { claudeFlags: [] },
     sources: {},
   });
+});
+
+test("publicUrl and spawn settings are read", () => {
+  const config = validateConfig({
+    publicUrl: "https://hooks.example.com",
+    spawn: { claudeFlags: ["--model", "some-model"], prompt: "Wait for events." },
+  });
+  assert.equal(config.publicUrl, "https://hooks.example.com");
+  assert.deepEqual(config.spawn, { claudeFlags: ["--model", "some-model"], prompt: "Wait for events." });
 });
 
 test("a source gets its defaults and a lowercase header name", () => {
@@ -61,6 +71,13 @@ test("errors name the offending key", () => {
     [{ sources: { deploys: { ...validSource, allowActors: "ada" } } }, /^sources\.deploys\.allowActors must be a list/],
     [{ sources: { deploys: { ...validSource, ignoreActors: [""] } } }, /^sources\.deploys\.ignoreActors must be a list/],
     [{ sources: { deploys: { ...validSource, ignoreMarker: 3 } } }, /^sources\.deploys\.ignoreMarker must be a string/],
+    [{ publicUrl: "http://hooks.example.com" }, /^publicUrl must be an https origin with no path, such as https:\/\/hooks\.example\.com/],
+    [{ publicUrl: "https://hooks.example.com/hooks" }, /^publicUrl must be an https origin with no path/],
+    [{ publicUrl: "hooks" }, /^publicUrl must be an https address/],
+    [{ publicUrl: "" }, /^publicUrl must be a non-empty string/],
+    [{ spawn: { claudeFlags: "--model" } }, /^spawn\.claudeFlags must be a list of non-empty strings/],
+    [{ spawn: { prompt: "" } }, /^spawn\.prompt must be a non-empty string/],
+    [{ spawn: { flags: [] } }, /^spawn\.flags is not a known setting/],
     [{ sources: { Deploys: validSource } }, /^sources\.Deploys is not a valid source name/],
   ];
   for (const [raw, message] of cases) {
