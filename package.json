@@ -29,6 +29,7 @@
   "files": [
     "dist",
     "!dist/**/*.test.js",
+    "CHANGELOG.md",
     "README.md",
     "LICENSE"
   ],
