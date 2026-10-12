@@ -176,3 +176,15 @@ test("events, subscribers and subscriptions survive reopening the file", () => {
   store = new EventStore(join(directory, "events.db"));
   assert.deepEqual(seqs("s1"), [1]);
 });
+
+test("state is unset until written, then overwritten in place and kept across a reopen", () => {
+  assert.equal(store.getState("cursor"), undefined);
+  store.setState("cursor", "100");
+  store.setState("cursor", "200");
+  store.setState("other", "x");
+  assert.equal(store.getState("cursor"), "200");
+  store.close();
+  store = new EventStore(join(directory, "events.db"));
+  assert.equal(store.getState("cursor"), "200");
+  assert.equal(store.getState("other"), "x");
+});
