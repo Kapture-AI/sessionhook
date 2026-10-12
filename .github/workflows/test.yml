@@ -20,4 +20,12 @@ jobs:
       - run: npm ci
       - run: npm test
       - name: Check that the package contains the CLI
-        run: npm pack --dry-run --json | grep -q '"path": "dist/cli.js"'
+        run: |
+          npm pack --dry-run --json | node --eval '
+            let input = "";
+            process.stdin.on("data", (chunk) => (input += chunk));
+            process.stdin.on("end", () => {
+              const listed = JSON.parse(input)[0].files.some((file) => file.path === "dist/cli.js");
+              process.exit(listed ? 0 : 1);
+            });
+          '
