@@ -63,7 +63,7 @@ async function withBroker(
   }
 }
 
-function post(broker: Broker, source: string, payload: object, secret = webhookSecret): Promise<number> {
+function post(broker: Broker, source: string, payload: object, secret = webhookSecret, query = ""): Promise<number> {
   const body = JSON.stringify(payload);
   const signature = `sha256=${createHmac("sha256", secret).update(body).digest("hex")}`;
   return new Promise((resolve, reject) => {
@@ -71,7 +71,7 @@ function post(broker: Broker, source: string, payload: object, secret = webhookS
       {
         host: "127.0.0.1",
         port: broker.webhookPort,
-        path: `/hooks/${source}`,
+        path: `/hooks/${source}${query}`,
         method: "POST",
         agent: false,
         headers: { "X-Hub-Signature": signature },
@@ -106,6 +106,17 @@ test("a signed comment payload is stored as a comment_created event", async () =
     assert.equal(event!.type, "comment_created");
     assert.equal(event!.actor.name, "Ada Lovelace");
     assert.equal(event!.url, "https://example.atlassian.net/browse/PROJ-123?focusedCommentId=20001");
+  });
+});
+
+test("a comment payload posted with the query string Jira appends is stored", async () => {
+  await withBroker({ jira: jiraSource }, async (broker) => {
+    broker.store.subscribe("watcher", "jira:PROJ-123");
+    const query = "?user_id=5b10a2844c20165700ede21g&user_key=ada";
+    assert.equal(await post(broker, "jira", fixture("webhook-comment-created"), webhookSecret, query), 200);
+    const [event, ...rest] = stored(broker, "watcher");
+    assert.equal(rest.length, 0);
+    assert.equal(event!.type, "comment_created");
   });
 });
 

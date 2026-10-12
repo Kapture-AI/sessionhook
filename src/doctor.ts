@@ -78,7 +78,8 @@ async function checkPublicUrl(deps: DoctorDeps, config: Config, sourceName: stri
   if (!config.publicUrl) return skip(name, "publicUrl is not set in the config, so whether the public address reaches the listener was not tested");
   const secret = lookupSecret(secretName, deps.paths.secretsFile, deps.env);
   if (!secret) return skip(name, `the secret ${secretName} was not found, see the config check`);
-  const url = `${config.publicUrl}/hooks/${sourceName}`;
+  // Jira appends query parameters to the URL, so the probe carries one to catch a proxy or listener that mishandles it.
+  const url = `${config.publicUrl}/hooks/${sourceName}?probe=doctor`;
   const body = JSON.stringify({ webhookEvent: "sessionhook:doctor", nonce: randomBytes(8).toString("hex") });
   const signature = createHmac("sha256", secret).update(body).digest("hex");
   let response: Response;

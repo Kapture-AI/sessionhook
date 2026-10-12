@@ -4,6 +4,7 @@ import { BadPayloadError, type Source } from "./source.js";
 
 const bodyLimit = 1024 * 1024;
 const hookPath = /^\/hooks\/([a-z0-9-]+)$/;
+const loggedPathLength = 100;
 
 function reply(response: ServerResponse, status: number, body: object): void {
   response.writeHead(status, { "Content-Type": "application/json" });
@@ -40,9 +41,17 @@ export function createWebhookServer(
   log: (line: string) => void,
 ): Server {
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    const sourceName = request.method === "POST" ? hookPath.exec(request.url ?? "")?.[1] : undefined;
+    // Jira appends its own query parameters to the configured URL, so only the path selects a source.
+    const { pathname } = new URL(request.url ?? "/", "http://listener.local");
+    const sourceName = request.method === "POST" ? hookPath.exec(pathname)?.[1] : undefined;
     const source = sourceName === undefined || !Object.hasOwn(sources, sourceName) ? undefined : sources[sourceName];
-    if (sourceName === undefined || source === undefined) return reply(response, 404, { error: "not found" });
+    if (sourceName === undefined || source === undefined) {
+      // Other paths are scanner noise and stay out of the log. The query string can carry tokens, so it is never logged.
+      if (request.method === "POST" && pathname.startsWith("/hooks/")) {
+        log(`rejected: no source at ${JSON.stringify(pathname.slice(0, loggedPathLength))}`);
+      }
+      return reply(response, 404, { error: "not found" });
+    }
 
     const rawBody = await readBody(request);
     if (rawBody === undefined) {
