@@ -56,7 +56,7 @@ The broker creates the state directory with mode 700 when it does not exist. A m
 
 The source name (`deploys` above) is the path, so the sender posts to `/hooks/deploys`. It may contain lowercase letters, digits and hyphens. The source type is `webhook` or `jira`, and the Jira source has its own section below.
 
-`signature.secret` is the name of a secret, never the value. The broker looks the name up in `secrets.json` and then in the environment variable of the same name. `secrets.json` is a flat object of names to values and must have mode 600, or the broker refuses to read it.
+`signature.secret` is the name of a secret, never the value. The broker looks the name up in `secrets.json`, then in the environment variable of the same name, then in the file named by the variable `<NAME>_FILE` (the Docker convention, the file's content is the secret and it must not be readable by group or others). `secrets.json` is a flat object of names to values and must have mode 600, or the broker refuses to read it.
 
 ```json
 { "DEPLOYS_WEBHOOK_SECRET": "a long random string" }

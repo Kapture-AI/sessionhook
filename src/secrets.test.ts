@@ -63,3 +63,38 @@ test("a secrets file that is not a flat object of strings is rejected", () => {
   assert.throws(() => lookupSecret("A", secretsFile('{"A":1}', 0o600), {}), /"A" must be a string/);
   assert.throws(() => lookupSecret("A", secretsFile("{", 0o600), {}), /not valid JSON/);
 });
+
+test("a secret is read from the file that NAME_FILE names, trimmed", () => {
+  const holder = secretsFile("fake-from-named-file\n", 0o600);
+  const none = secretsFile("{}", 0o600);
+  assert.equal(lookupSecret("HOOK_SECRET", none, { HOOK_SECRET_FILE: holder }), "fake-from-named-file");
+});
+
+test("the secrets file and the plain variable both win over NAME_FILE", () => {
+  const holder = secretsFile("fake-from-named-file", 0o600);
+  const withValue = secretsFile('{"HOOK_SECRET":"fake-from-file"}', 0o600);
+  const none = secretsFile("{}", 0o600);
+  assert.equal(lookupSecret("HOOK_SECRET", withValue, { HOOK_SECRET_FILE: holder }), "fake-from-file");
+  assert.equal(
+    lookupSecret("HOOK_SECRET", none, { HOOK_SECRET: "fake-from-env", HOOK_SECRET_FILE: holder }),
+    "fake-from-env",
+  );
+});
+
+test("a NAME_FILE readable by the group is refused with the reason", () => {
+  const holder = secretsFile("fake-from-named-file", 0o640);
+  const none = secretsFile("{}", 0o600);
+  assert.throws(
+    () => lookupSecret("HOOK_SECRET", none, { HOOK_SECRET_FILE: holder }),
+    /refusing to read .*mode is 640.*chmod 600/,
+  );
+});
+
+test("a NAME_FILE that cannot be read names the variable, and an empty one gives no secret", () => {
+  const none = secretsFile("{}", 0o600);
+  assert.throws(
+    () => lookupSecret("HOOK_SECRET", none, { HOOK_SECRET_FILE: join(directory, "absent") }),
+    /HOOK_SECRET_FILE points at .*absent, which cannot be read/,
+  );
+  assert.equal(lookupSecret("HOOK_SECRET", none, { HOOK_SECRET_FILE: secretsFile("\n", 0o600) }), undefined);
+});
