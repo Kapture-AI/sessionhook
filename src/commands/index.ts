@@ -1,4 +1,5 @@
 import { channel } from "./channel.js";
+import { init } from "./init.js";
 import { tail, wait } from "./delivery.js";
 import { replay } from "./replay.js";
 import { serve } from "./serve.js";
@@ -14,7 +15,7 @@ export type Command = {
 
 // A later phase implements a command in its own file and sets `run` here.
 export const commands: Record<string, Command> = {
-  init: { summary: "Write the config, register the MCP server and print webhook settings" },
+  init: { summary: "Write the config, register the MCP server and print webhook settings", run: init },
   serve: { summary: "Run the broker", run: serve },
   doctor: { summary: "Check the broker, the Jira token and the public webhook URL" },
   subscribe: { summary: "Subscribe to a topic", run: subscribe },

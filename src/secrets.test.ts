@@ -1,9 +1,9 @@
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { lookupSecret } from "./secrets.js";
+import { lookupSecret, readSecretsFile, writeSecretsFile } from "./secrets.js";
 
 let directory: string;
 let counter = 0;
@@ -97,4 +97,21 @@ test("a NAME_FILE that cannot be read names the variable, and an empty one gives
     /HOOK_SECRET_FILE points at .*absent, which cannot be read/,
   );
   assert.equal(lookupSecret("HOOK_SECRET", none, { HOOK_SECRET_FILE: secretsFile("\n", 0o600) }), undefined);
+});
+
+test("writeSecretsFile creates the directory and a file only the owner can read, and a reread gives the values back", () => {
+  const file = join(directory, "new-config", "secrets.json");
+  writeSecretsFile(file, { A: "fake-a", B: "fake-b" });
+  assert.equal(statSync(file).mode & 0o777, 0o600);
+  assert.equal(statSync(join(directory, "new-config")).mode & 0o777, 0o700);
+  assert.deepEqual(readSecretsFile(file), { A: "fake-a", B: "fake-b" });
+  writeSecretsFile(file, { A: "fake-changed" });
+  assert.deepEqual(readSecretsFile(file), { A: "fake-changed" });
+  assert.deepEqual(readdirSync(join(directory, "new-config")), ["secrets.json"]);
+});
+
+test("writeSecretsFile makes a looser existing file private again", () => {
+  const file = secretsFile('{"A":"fake"}', 0o644);
+  writeSecretsFile(file, { A: "fake" });
+  assert.equal(statSync(file).mode & 0o777, 0o600);
 });

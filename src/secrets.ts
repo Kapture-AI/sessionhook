@@ -1,4 +1,5 @@
-import { readFileSync, statSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 
 function refuseOpenFile(file: string, mode: number): void {
   if (!(mode & 0o077)) return;
@@ -8,7 +9,7 @@ function refuseOpenFile(file: string, mode: number): void {
   );
 }
 
-function readSecretsFile(file: string): Record<string, string> {
+export function readSecretsFile(file: string): Record<string, string> {
   let mode: number;
   try {
     mode = statSync(file).mode;
@@ -57,4 +58,18 @@ export function lookupSecret(
   const fromFile = readSecretsFile(secretsFile);
   const value = Object.hasOwn(fromFile, name) ? fromFile[name] : undefined;
   return value || env[name] || readSecretFromNamedFile(name, env);
+}
+
+// The file is created with mode 600 at open time, so there is no moment when it can be read by others,
+// and it replaces the old one in a single rename so a failed write never truncates existing secrets.
+export function writeSecretsFile(file: string, secrets: Record<string, string>): void {
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+  const temporary = `${file}.${process.pid}.tmp`;
+  try {
+    writeFileSync(temporary, `${JSON.stringify(secrets, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+    renameSync(temporary, file);
+  } catch (error) {
+    rmSync(temporary, { force: true });
+    throw error;
+  }
 }
