@@ -48,6 +48,7 @@ function makePoller(overrides: { intervalMs?: number; fetch?: typeof fetch } = {
     email: "ada@example.com",
     token,
     intervalMs: overrides.intervalMs ?? 30_000,
+    ignoreFields: [],
     store,
     intake: (events) => delivered.push(events),
     log: (line) => lines.push(line),
@@ -188,7 +189,7 @@ test("a failed tick leaves the cursor where it was, and so does a broker that ca
 
   replies.push(json(fixture("poll-search")));
   const failing = new JiraPoller({
-    name: "jira", site, email: "ada@example.com", token, intervalMs: 30_000, store,
+    name: "jira", site, email: "ada@example.com", token, intervalMs: 30_000, ignoreFields: [], store,
     intake: () => {
       throw new Error("disk full");
     },

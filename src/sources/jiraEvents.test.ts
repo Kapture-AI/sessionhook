@@ -84,7 +84,7 @@ test("a long comment is cut to 2000 characters", () => {
 });
 
 test("a changelog entry lists each changed item and writes an empty side as none", () => {
-  const event = historyEvent(origin, issue.changelog!.histories[0]!);
+  const event = historyEvent(origin, issue.changelog!.histories[0]!, []);
   assert.deepEqual(event, {
     id: "jira:changelog:30001",
     topic: "jira:PROJ-123",
@@ -97,7 +97,7 @@ test("a changelog entry lists each changed item and writes an empty side as none
 });
 
 test("only items at or after the window start become events, and an edit is not a creation", () => {
-  const events = eventsInWindow(origin, issue.fields.comment!.comments, issue.changelog!.histories, windowStart);
+  const events = eventsInWindow(origin, issue.fields.comment!.comments, issue.changelog!.histories, windowStart, []);
   assert.deepEqual(events.map((event) => event.id).sort(), [
     "jira:changelog:30001",
     "jira:comment:20001",
@@ -107,13 +107,13 @@ test("only items at or after the window start become events, and an edit is not 
 
 test("the window start is inclusive", () => {
   const exactly = Date.parse(newComment!.created);
-  assert.equal(eventsInWindow(origin, [newComment!], [], exactly).length, 1);
-  assert.equal(eventsInWindow(origin, [newComment!], [], exactly + 1).length, 0);
+  assert.equal(eventsInWindow(origin, [newComment!], [], exactly, []).length, 1);
+  assert.equal(eventsInWindow(origin, [newComment!], [], exactly + 1, []).length, 0);
 });
 
 test("a comment created and edited inside the window yields both events", () => {
   const comment = { ...newComment!, updated: "2026-10-12T14:10:00.000+0400" };
-  const types = eventsInWindow(origin, [comment], [], windowStart).map((event) => event.type);
+  const types = eventsInWindow(origin, [comment], [], windowStart, []).map((event) => event.type);
   assert.deepEqual(types, ["comment_created", "comment_updated"]);
 });
 
@@ -136,4 +136,18 @@ test("a cut changelog needs the follow-up only when its oldest shown entry is in
   assert.equal(changelogMayHideWindow(cutOutside, windowStart), false);
   assert.equal(changelogMayHideWindow(issue, windowStart), false);
   assert.equal(changelogMayHideWindow({ ...issue, changelog: undefined }, windowStart), false);
+});
+
+test("ignored fields are left out of a changelog summary, and an entry with nothing left produces no event", () => {
+  const history = issue.changelog!.histories[0]!;
+  assert.equal(historyEvent(origin, history, ["resolution"])?.summary, "status: To Do -> In Progress");
+  assert.equal(historyEvent(origin, history, ["status", "resolution"]), undefined);
+  assert.equal(historyEvent(origin, history, ["Status", "Resolution"])?.summary.split("\n").length, 2, "matching is exact");
+  assert.equal(historyEvent(origin, history, [])?.summary.split("\n").length, 2);
+});
+
+test("a poll window drops changelog entries whose items are all ignored and keeps comments", () => {
+  const events = eventsInWindow(origin, issue.fields.comment!.comments, issue.changelog!.histories, windowStart, ["status", "resolution"]);
+  assert.ok(!events.some((event) => event.type === "issue_updated"));
+  assert.equal(events.length, 2);
 });

@@ -30,6 +30,8 @@ export type JiraSourceConfig = IntakeFilters & {
   token?: string;
   poll?: { intervalSeconds: number };
   webhookSecret?: string;
+  // Changelog fields whose changes do not make an event, matched exactly as Jira names them.
+  ignoreFields: string[];
 };
 
 export type SourceConfig = WebhookSourceConfig | JiraSourceConfig;
@@ -158,14 +160,17 @@ function readPoll(raw: unknown, prefix: string): { intervalSeconds: number } {
 function validateJiraSource(source: Json, prefix: string): JiraSourceConfig {
   rejectUnknownKeys(
     source,
-    ["type", "site", "email", "token", "poll", "webhookSecret", "allowActors", "ignoreActors", "ignoreMarker"],
+    ["type", "site", "email", "token", "poll", "webhookSecret", "ignoreFields", "allowActors", "ignoreActors", "ignoreMarker"],
     prefix,
   );
   if (source.poll === undefined && source.webhookSecret === undefined) {
     throw new Error(`${prefix}poll or ${prefix}webhookSecret is needed, or the source would never receive an event`);
   }
 
-  const config: JiraSourceConfig = { type: "jira", site: readSite(source, prefix), ...readFilters(source, prefix) };
+  const config: JiraSourceConfig = { type: "jira", site: readSite(source, prefix),
+    ignoreFields: textList(source, "ignoreFields", prefix),
+    ...readFilters(source, prefix),
+  };
   if (source.poll !== undefined) {
     config.poll = readPoll(source.poll, prefix);
     config.email = requiredText(source, "email", prefix);

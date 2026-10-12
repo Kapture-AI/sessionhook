@@ -111,6 +111,7 @@ test("a jira source gets the default poll interval and empty filters", () => {
     token: "JIRA_API_TOKEN",
     poll: { intervalSeconds: 30 },
     webhookSecret: "JIRA_WEBHOOK_SECRET",
+    ignoreFields: [],
     allowActors: [],
     ignoreActors: [],
     ignoreMarker: "",
@@ -151,9 +152,16 @@ test("jira source errors name the offending key", () => {
     [withJira({ poll: undefined, webhookSecret: undefined }), /^sources\.jira\.poll or sources\.jira\.webhookSecret is needed/],
     [withJira({ webhookSecret: "" }), /^sources\.jira\.webhookSecret must be a non-empty string/],
     [withJira({ signature: {} }), /^sources\.jira\.signature is not a known setting/],
+    [withJira({ ignoreFields: "Rank" }), /^sources\.jira\.ignoreFields must be a list/],
+    [withJira({ ignoreFields: [""] }), /^sources\.jira\.ignoreFields must be a list/],
     [withJira({ allowActors: "ada" }), /^sources\.jira\.allowActors must be a list/],
   ];
   for (const [raw, message] of cases) {
     assert.throws(() => validateConfig(raw), { message }, JSON.stringify(raw));
   }
+});
+
+test("ignoreFields is kept as written", () => {
+  const config = validateConfig({ sources: { jira: { ...jiraSource, ignoreFields: ["Attachment", "Rank"] } } });
+  assert.deepEqual((config.sources.jira as { ignoreFields: string[] }).ignoreFields, ["Attachment", "Rank"]);
 });

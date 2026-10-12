@@ -82,7 +82,8 @@ export class JiraSource implements Source {
         return [commentUpdatedEvent(this.originOf(body), commentFrom(body))];
       case "jira:issue_updated": {
         const history = historyFrom(body);
-        return history === undefined ? [] : [historyEvent(this.originOf(body), history)];
+        const event = history && historyEvent(this.originOf(body), history, this.config.ignoreFields);
+        return event ? [event] : [];
       }
       default:
         return [];

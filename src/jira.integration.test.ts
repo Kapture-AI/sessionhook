@@ -334,3 +334,14 @@ test("a poll source whose token cannot be found stops the broker from starting a
   const missing = { ...pollSource, token: "TEST_MISSING_TOKEN" };
   await assert.rejects(withBroker({ jira: missing }, async () => {}), /needs the secret "TEST_MISSING_TOKEN"/);
 });
+
+test("ignoreFields drops an update made only of listed fields in both modes and still answers the webhook 200", async () => {
+  const both = { ...pollSource, webhookSecret: "TEST_JIRA_WEBHOOK_SECRET", ignoreFields: ["status", "resolution"] };
+  const jira = recordedJira();
+  await withBroker({ jira: both }, async (broker) => {
+    await until(() => broker.store.unread("watcher", 100).length === 2, "the poll to store its comments");
+    assert.equal(await post(broker, "jira", fixture("webhook-issue-updated")), 200);
+    const types = broker.store.unread("watcher", 100).map((event) => event.type);
+    assert.deepEqual(types.sort(), ["comment_created", "comment_updated"]);
+  }, { subscriptions: ["jira:PROJ-123"], runtime: { fetch: jira.fetchJira } });
+});

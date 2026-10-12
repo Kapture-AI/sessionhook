@@ -26,6 +26,7 @@ export type JiraPollerOptions = JiraRuntime & {
   email: string;
   token: string;
   intervalMs: number;
+  ignoreFields: string[];
   store: EventStore;
   intake: (events: NewEvent[]) => void;
   log: (line: string) => void;
@@ -149,7 +150,7 @@ export class JiraPoller {
       const histories = changelogMayHideWindow(issue, windowStart)
         ? await this.newestHistories(issue.key, issue.changelog!.total)
         : issue.changelog?.histories ?? [];
-      events.push(...eventsInWindow(origin, comments, histories, windowStart));
+      events.push(...eventsInWindow(origin, comments, histories, windowStart, this.options.ignoreFields));
     }
     return events;
   }

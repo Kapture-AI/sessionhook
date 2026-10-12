@@ -110,8 +110,15 @@ export function commentUpdatedEvent(origin: EventOrigin, comment: JiraComment): 
   };
 }
 
-export function historyEvent(origin: EventOrigin, history: JiraHistory): NewEvent {
-  const lines = history.items.map(
+// An entry whose items are all ignored produces no event.
+export function historyEvent(
+  origin: EventOrigin,
+  history: JiraHistory,
+  ignoreFields: string[],
+): NewEvent | undefined {
+  const items = history.items.filter((item) => !ignoreFields.includes(item.field));
+  if (items.length === 0) return undefined;
+  const lines = items.map(
     (item) => `${item.field}: ${item.fromString || "none"} -> ${item.toString || "none"}`,
   );
   return {
@@ -146,6 +153,7 @@ export function eventsInWindow(
   comments: JiraComment[],
   histories: JiraHistory[],
   windowStart: number,
+  ignoreFields: string[],
 ): NewEvent[] {
   const events: NewEvent[] = [];
   for (const comment of comments) {
@@ -154,7 +162,9 @@ export function eventsInWindow(
     if (edited && parseJiraTime(comment.updated) >= windowStart) events.push(commentUpdatedEvent(origin, comment));
   }
   for (const history of histories) {
-    if (parseJiraTime(history.created) >= windowStart) events.push(historyEvent(origin, history));
+    if (parseJiraTime(history.created) < windowStart) continue;
+    const event = historyEvent(origin, history, ignoreFields);
+    if (event) events.push(event);
   }
   return events;
 }

@@ -163,6 +163,7 @@ export class Broker {
         email: source.email,
         token,
         intervalMs: source.poll.intervalSeconds * 1000,
+        ignoreFields: source.ignoreFields,
         store: this.store,
         intake: (events) => this.intake(name, events),
         log: this.options.log,

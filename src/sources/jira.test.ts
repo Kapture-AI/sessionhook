@@ -12,6 +12,7 @@ const config: JiraSourceConfig = {
   type: "jira",
   site,
   webhookSecret: "JIRA_WEBHOOK_SECRET",
+  ignoreFields: [],
   allowActors: [],
   ignoreActors: [],
   ignoreMarker: "",
@@ -123,4 +124,19 @@ test("payloads that cannot become an event are bad payloads", () => {
   const withoutTimestamp = fixture("webhook-issue-updated");
   delete withoutTimestamp.timestamp;
   assert.throws(() => source.parse(request(withoutTimestamp)), BadPayloadError);
+});
+
+test("ignoreFields leaves listed fields out of an issue_updated summary", () => {
+  const hiding = new JiraSource("jira", { ...config, ignoreFields: ["resolution"] }, secret);
+  assert.equal(hiding.parse(request(fixture("webhook-issue-updated")))[0]!.summary, "status: To Do -> In Progress");
+});
+
+test("an issue_updated whose items are all in ignoreFields produces no event", () => {
+  const hiding = new JiraSource("jira", { ...config, ignoreFields: ["status", "resolution"] }, secret);
+  assert.deepEqual(hiding.parse(request(fixture("webhook-issue-updated"))), []);
+});
+
+test("an issue_updated with no listed field is unchanged by ignoreFields", () => {
+  const hiding = new JiraSource("jira", { ...config, ignoreFields: ["Rank"] }, secret);
+  assert.equal(hiding.parse(request(fixture("webhook-issue-updated")))[0]!.summary.split("\n").length, 2);
 });
