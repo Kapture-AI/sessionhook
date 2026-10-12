@@ -4,7 +4,7 @@ sessionhook delivers outside events, such as a comment on a Jira ticket, to runn
 
 ## Status
 
-The broker, the generic signed webhook source, command line delivery and delivery into a Claude Code session as a channel work. The Jira source, polling, and the `init`, `doctor` and `spawn` commands are not there yet, and those commands print that they are not implemented.
+The broker, the generic signed webhook source, the Jira source (webhook and poll modes), command line delivery and delivery into a Claude Code session as a channel work. The `init`, `doctor` and `spawn` commands are not there yet, and those commands print that they are not implemented.
 
 ## Requirements
 
@@ -54,7 +54,7 @@ The broker creates the state directory with mode 700 when it does not exist. A m
 
 `listen` defaults to `127.0.0.1:8377`. Keep the host on a loopback address and put a reverse proxy or tunnel in front of it when a sender outside the machine has to reach it. The broker does not stop you from binding another address.
 
-The source name (`deploys` above) is the path, so the sender posts to `/hooks/deploys`. It may contain lowercase letters, digits and hyphens. Only the source type `webhook` exists today.
+The source name (`deploys` above) is the path, so the sender posts to `/hooks/deploys`. It may contain lowercase letters, digits and hyphens. The source type is `webhook` or `jira`, and the Jira source has its own section below.
 
 `signature.secret` is the name of a secret, never the value. The broker looks the name up in `secrets.json` and then in the environment variable of the same name. `secrets.json` is a flat object of names to values and must have mode 600, or the broker refuses to read it.
 
@@ -77,6 +77,117 @@ The three filter settings apply to every event before it is stored.
 - `ignoreMarker`, when not empty, drops events whose summary contains it.
 
 A dropped event is not stored, the sender still gets a 200, and `serve` logs which rule dropped it.
+
+## Jira source
+
+The `jira` source type turns comments and field changes on Jira Cloud tickets into events. It can ask Jira for changes on a timer (poll mode), receive webhooks from Jira (webhook mode), or do both.
+
+```json
+{
+  "sources": {
+    "jira": {
+      "type": "jira",
+      "site": "https://example.atlassian.net",
+      "email": "ada@example.com",
+      "token": "JIRA_API_TOKEN",
+      "poll": { "intervalSeconds": 30 },
+      "webhookSecret": "JIRA_WEBHOOK_SECRET",
+      "allowActors": [],
+      "ignoreActors": [],
+      "ignoreMarker": ""
+    }
+  }
+}
+```
+
+| Key | Meaning |
+|---|---|
+| `site` | The address of your Jira Cloud site. It must start with `https://` and have no path. Links in events are built from it. |
+| `email` | The email address of the Atlassian account that owns the API token. Needed when `poll` is set. |
+| `token` | The name of a secret that holds the API token, never the token itself. Needed when `poll` is set. |
+| `poll` | Turns on poll mode. `intervalSeconds` defaults to 30 and cannot be below 5. Write `"poll": {}` for the defaults. |
+| `webhookSecret` | The name of a secret that holds the webhook secret, never the secret itself. Setting it turns on webhook mode. Without it the source answers every request to its webhook path with 401. |
+| `allowActors`, `ignoreActors`, `ignoreMarker` | The filters described under Configuration. Actors are matched by Atlassian account id or display name. |
+
+At least one of `poll` and `webhookSecret` is required. The topic of an event is the source name, a colon and the ticket key, so with the source named `jira` a ticket is `jira:PROJ-123`. A subscription to anything else under the `jira` source, such as `jira:proj-123`, never matches, and in poll mode the broker logs that once.
+
+### Poll mode
+
+Poll mode needs no URL, domain, open port or Jira administrator rights. The broker asks Jira for the subscribed tickets that changed recently, using the API token of one Atlassian account. That account must be able to see the tickets.
+
+Create the token at id.atlassian.com under Security, API tokens, and put it where the broker finds secrets, in `secrets.json` or in the environment (see Configuration).
+
+```json
+{ "JIRA_API_TOKEN": "the token from id.atlassian.com" }
+```
+
+Every `intervalSeconds` the broker sends one search request, `POST /rest/api/3/search/jql`, listing all subscribed tickets with `updated >= <epoch milliseconds>`, and asks for each ticket's comments and change history in the same response. That is one request per interval however many tickets are subscribed. A ticket that changed in the last minute and has more than 20 comments, or a long enough history, costs one more request for the part the search cut off. When no ticket is subscribed the broker makes no request at all.
+
+Each search starts 60 seconds before the last successful one, because Jira's search index shows a new comment a couple of seconds late. The repeats are dropped by event id, so a comment is stored once. The first poll ever starts at the time the broker started (less the overlap), so older tickets are not replayed. The position is kept in the event database, so a broker that was stopped catches up from it when it starts again, up to the newest 100 comments and 100 history entries per ticket.
+
+If Jira cannot be reached or refuses the token, the broker keeps running and retries on the next interval. It logs one line when polling starts failing, with the HTTP status (and a hint when the email or token is wrong), and one line when it recovers. After a 429 it waits for the time Jira asks for. The token and the Authorization header are never logged.
+
+### Webhook mode
+
+Webhook mode is instant and needs Jira to reach the broker, so the listener needs a public address (see below). Jira posts to `https://<your host>/hooks/jira`, where `jira` is the source name.
+
+In Jira, open Settings, System, WebHooks and create a webhook. Set the URL, put the same string as the secret that `webhookSecret` names, and tick these events.
+
+- Issue: updated
+- Comment: created
+- Comment: updated
+
+Jira signs each request with `X-Hub-Signature: sha256=<hex>`, the HMAC-SHA256 of the raw body, and the broker rejects a request with a wrong or missing signature with 401. Any other kind of event, such as an issue being created, is answered with 200 and stores nothing.
+
+When the event cannot be stored the listener answers 500. Jira retries after a 408, 409, 425, 429 or 5xx answer, the first retry about six minutes later with the identical body, and the retry is stored once because it produces the same event id.
+
+### Poll and webhook together
+
+Set both `poll` and `webhookSecret` to get webhooks as the fast path and the poll as the safety net for webhooks that never arrive. Both modes produce the same event id for the same comment or change, so an event that arrives twice is stored once.
+
+### Events
+
+| Type | Id | When |
+|---|---|---|
+| `comment_created` | `<source>:comment:<comment id>` | Someone adds a comment. |
+| `comment_updated` | `<source>:comment:<comment id>:updated:<update time in epoch ms>` | Someone edits a comment. Each edit is its own event. |
+| `issue_updated` | `<source>:changelog:<change history id>` | A field changes. The summary has one line per changed field. |
+
+Comment text is converted to plain text and cut to 2,000 characters. As `wait` prints them:
+
+```
+#12 jira:PROJ-123 comment_created
+by Ada Lovelace at 2026-10-12T09:56:41.681Z
+https://example.atlassian.net/browse/PROJ-123?focusedCommentId=20001
+Deploy check passed, safe to ignore.
+```
+
+```
+#13 jira:PROJ-123 comment_updated
+by Grace Hopper at 2026-10-12T10:05:00.000Z
+https://example.atlassian.net/browse/PROJ-123?focusedCommentId=20001
+Deploy check passed after a rerun.
+```
+
+```
+#14 jira:PROJ-123 issue_updated
+by Ada Lovelace at 2026-10-12T09:36:10.213Z
+https://example.atlassian.net/browse/PROJ-123
+status: To Do -> In Progress
+resolution: none -> Done
+```
+
+### Filters
+
+The filters from Configuration apply to Jira events in both modes. `allowActors` limits who can wake a session, `ignoreActors` silences accounts such as bots, and `ignoreMarker` exists for agents that post comments under a human's account. Have the agent end each comment with a fixed text such as `[agent]` and set `ignoreMarker` to that text, so the agent's own comments do not wake the sessions subscribed to the ticket.
+
+### Getting a public address for webhook mode
+
+The listener binds to `127.0.0.1:8377` and serves only `/hooks/*`, so a proxy pointed at it never exposes subscriptions or events. Setting up the address is up to you, and these are three ways.
+
+- A reverse proxy on a server with a domain, such as Caddy or nginx, that forwards `/hooks/` to `127.0.0.1:8377`.
+- Tailscale Funnel or an ngrok static address, for a machine without a domain. `tailscale funnel 8377` publishes the port on a `ts.net` address, and ngrok can forward a reserved domain to the port.
+- A relay such as smee.io or Hookdeck, which receives the webhook on a public address and forwards it to a client on your machine. The signature covers the exact bytes of the body, so check that the relay forwards the body and the `X-Hub-Signature` header unchanged.
 
 ## Running the broker
 
