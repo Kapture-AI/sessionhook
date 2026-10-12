@@ -5,7 +5,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CommandNotFoundError, type RunResult, type Runner } from "./exec.js";
-import { ServiceInstaller, launchdPlist, serviceEnvironment, systemdUnit, type ServiceSpec } from "./service.js";
+import { ServiceInstaller, launchdPlist, systemdUnit, type ServiceSpec } from "./service.js";
 
 const spec: ServiceSpec = {
   nodePath: "/usr/local/bin/node",
@@ -41,13 +41,6 @@ function recordingRunner(answers: Record<string, Partial<RunResult> | "missing">
   };
   return { run, calls };
 }
-
-test("only the location variables that are set are carried into the service", () => {
-  assert.deepEqual(serviceEnvironment({ PATH: "/bin", SESSIONHOOK_STATE_DIR: "/data/state" }), {
-    SESSIONHOOK_STATE_DIR: "/data/state",
-  });
-  assert.deepEqual(serviceEnvironment({ SESSIONHOOK_CONFIG_DIR: "", HOME: "/home/ada" }), {});
-});
 
 test("the systemd unit restarts the broker and starts it at login", () => {
   assert.equal(

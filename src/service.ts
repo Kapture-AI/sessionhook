@@ -10,13 +10,8 @@ export type ServiceSpec = {
   environment: Record<string, string>;
 };
 
-const environmentNames = ["SESSIONHOOK_CONFIG_DIR", "SESSIONHOOK_STATE_DIR"];
 const unitName = "sessionhook.service";
 const launchdLabel = "com.sessionhook.broker";
-
-export function serviceEnvironment(env: NodeJS.ProcessEnv): Record<string, string> {
-  return Object.fromEntries(environmentNames.flatMap((name) => (env[name] ? [[name, env[name]]] : [])));
-}
 
 function unitQuote(value: string, expandsDollar: boolean): string {
   let escaped = value.replaceAll("%", "%%");

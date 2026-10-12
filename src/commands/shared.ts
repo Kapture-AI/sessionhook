@@ -3,8 +3,8 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { BrokerClient } from "../client.js";
 import { runCommand } from "../exec.js";
-import { resolvePaths } from "../paths.js";
-import { ServiceInstaller, serviceEnvironment, type ServiceSpec } from "../service.js";
+import { locationEnvironment, resolvePaths } from "../paths.js";
+import { ServiceInstaller, type ServiceSpec } from "../service.js";
 
 export function brokerClient(): BrokerClient {
   return new BrokerClient(resolvePaths(process.env).socketFile);
@@ -29,6 +29,6 @@ export function serviceSpec(): ServiceSpec {
   return {
     nodePath: process.execPath,
     cliPath: installedCliPath(),
-    environment: serviceEnvironment(process.env),
+    environment: locationEnvironment(process.env),
   };
 }
