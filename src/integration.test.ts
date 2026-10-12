@@ -107,6 +107,13 @@ function deliver(repository: string, deliveryId: number, extra: object = {}): Pr
   });
 }
 
+async function until(condition: () => boolean, what: string): Promise<void> {
+  for (let attempt = 0; attempt < 200 && !condition(); attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.ok(condition(), `timed out waiting for ${what}`);
+}
+
 test("status lists each subscriber with its topics and unread count", async () => {
   await sessionhook(["subscribe", "deploys:org/status-a", "--name", "status-one"]);
   await sessionhook(["subscribe", "deploys:org/status-b", "--name", "status-one"]);
@@ -194,4 +201,116 @@ test("commands say the broker is not running when it is not", async () => {
 test("commands other than serve do not load the experimental SQLite module", async () => {
   const result = await sessionhook(["status"]);
   assert.equal(result.stderr, "");
+});
+
+function eventLines(text: string): Array<{ seq: number; id: string; topic: string; summary: string }> {
+  return text.split("\n").filter(Boolean).map((line) => JSON.parse(line));
+}
+
+test("with two subscribers on the same topic, tail shows the event to both", async () => {
+  await sessionhook(["subscribe", "deploys:org/tail", "--name", "tail-one"]);
+  await sessionhook(["subscribe", "deploys:org/tail", "--name", "tail-two"]);
+  const first = start(["tail", "--json", "--name", "tail-one"]);
+  const second = start(["tail", "--json", "--name", "tail-two"]);
+
+  assert.equal(await deliver("org/tail", 2001), 200);
+  await until(() => first.output.stdout.includes("\n") && second.output.stdout.includes("\n"), "both tails to print");
+  first.child.kill("SIGTERM");
+  second.child.kill("SIGTERM");
+  await Promise.all([first.finished, second.finished]);
+
+  for (const { output } of [first, second]) {
+    const events = eventLines(output.stdout);
+    assert.equal(events.length, 1);
+    assert.equal(events[0]!.id, "deploys:2001");
+    assert.equal(events[0]!.topic, "deploys:org/tail");
+  }
+});
+
+test("tail acknowledges after printing, so a later tail does not repeat the event", async () => {
+  const again = start(["tail", "--json", "--name", "tail-one"]);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  again.child.kill("SIGTERM");
+  await again.finished;
+  assert.equal(again.output.stdout, "");
+});
+
+test("a subscriber that subscribes, is away while three events arrive, then runs wait receives all three in order", async () => {
+  await sessionhook(["subscribe", "deploys:org/away", "--name", "away-one"]);
+  for (const id of [3001, 3002, 3003]) assert.equal(await deliver("org/away", id), 200);
+
+  const result = await sessionhook(["wait", "--json", "--name", "away-one"]);
+  assert.equal(result.status, 0);
+  const events = eventLines(result.stdout);
+  assert.deepEqual(events.map((event) => event.id), ["deploys:3001", "deploys:3002", "deploys:3003"]);
+  assert.ok(events[0]!.seq < events[1]!.seq && events[1]!.seq < events[2]!.seq);
+
+  const status = JSON.parse((await sessionhook(["status", "--json"])).stdout);
+  assert.equal(status.find((s: { name: string }) => s.name === "away-one").unread, 0);
+});
+
+test("wait exits with the unread events printed when there are any", async () => {
+  await sessionhook(["subscribe", "deploys:org/ready", "--name", "ready-one"]);
+  await deliver("org/ready", 4001, { message: "Shipped to production" });
+  const result = await sessionhook(["wait", "--name", "ready-one"]);
+  assert.equal(result.status, 0);
+  assert.match(
+    result.stdout,
+    /^#\d+ deploys:org\/ready deployed\nby Ada Lovelace at \d{4}-\d\d-\d\dT[\d:.]+Z\nhttps:\/\/example\.com\/deploys\/4001\nShipped to production\n$/,
+  );
+});
+
+test("wait blocks with no output while nothing is unread and exits once an event arrives", async () => {
+  await sessionhook(["subscribe", "deploys:org/blocked", "--name", "blocked-one"]);
+  const waiting = start(["wait", "--name", "blocked-one"]);
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  assert.equal(waiting.child.exitCode, null);
+  assert.equal(waiting.output.stdout, "");
+
+  await deliver("org/blocked", 5001);
+  const result = await waiting.finished;
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /deploys:org\/blocked deployed/);
+
+  const next = start(["wait", "--name", "blocked-one"]);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.equal(next.child.exitCode, null, "the event was acknowledged, so wait blocks again");
+  next.child.kill("SIGTERM");
+  await next.finished;
+});
+
+test("wait for an unknown subscriber tells the user to subscribe first", async () => {
+  const result = await sessionhook(["wait", "--name", "never-subscribed"]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /subscribe to a topic first/);
+});
+
+test("events that arrived before the subscription are not delivered", async () => {
+  await deliver("org/early", 6001);
+  await sessionhook(["subscribe", "deploys:org/early", "--name", "early-one"]);
+  await deliver("org/early", 6002);
+  const result = await sessionhook(["wait", "--json", "--name", "early-one"]);
+  assert.deepEqual(eventLines(result.stdout).map((event) => event.id), ["deploys:6002"]);
+});
+
+test("replay makes events unread again and wait delivers them again", async () => {
+  await sessionhook(["subscribe", "deploys:org/replay", "--name", "replay-one"]);
+  await deliver("org/replay", 7001);
+  await deliver("org/replay", 7002);
+  const first = eventLines((await sessionhook(["wait", "--json", "--name", "replay-one"])).stdout);
+  assert.equal(first.length, 2);
+
+  const replayed = await sessionhook(["replay", "--from", String(first[1]!.seq), "--name", "replay-one"]);
+  assert.match(replayed.stdout, /^1 event is now unread for replay-one$/m);
+  const second = eventLines((await sessionhook(["wait", "--json", "--name", "replay-one"])).stdout);
+  assert.deepEqual(second.map((event) => event.id), ["deploys:7002"]);
+
+  const all = await sessionhook(["replay", "--from", String(first[0]!.seq), "--name", "replay-one"]);
+  assert.match(all.stdout, /^2 events are now unread for replay-one$/m);
+});
+
+test("replay without --from explains what it needs", async () => {
+  const result = await sessionhook(["replay", "--name", "replay-one"]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /replay needs --from <seq>/);
 });

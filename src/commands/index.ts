@@ -1,3 +1,5 @@
+import { tail, wait } from "./delivery.js";
+import { replay } from "./replay.js";
 import { serve } from "./serve.js";
 import { status } from "./status.js";
 import { subscribe, unsubscribe } from "./subscribe.js";
@@ -16,8 +18,8 @@ export const commands: Record<string, Command> = {
   subscribe: { summary: "Subscribe to a topic", run: subscribe },
   unsubscribe: { summary: "Remove a subscription", run: unsubscribe },
   status: { summary: "List subscribers, their topics and unread counts", run: status },
-  wait: { summary: "Block until there are unread events, print them and exit" },
-  tail: { summary: "Stream events as they arrive" },
-  replay: { summary: "Send stored events to a subscriber again" },
+  wait: { summary: "Block until there are unread events, print them and exit", run: wait },
+  tail: { summary: "Stream events as they arrive", run: tail },
+  replay: { summary: "Send stored events to a subscriber again", run: replay },
   spawn: { summary: "Start a tmux session running Claude Code, subscribed to a topic" },
 };
