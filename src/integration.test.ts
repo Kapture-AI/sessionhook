@@ -140,6 +140,9 @@ test("status lists each subscriber with its topics and unread count", async () =
 
 test("status says when there are no subscribers", async () => {
   const other = mkdtempSync(join(tmpdir(), "sessionhook-empty-"));
+  // Port 0, because the default port belongs to whatever else runs on the machine, such as another test run.
+  mkdirSync(join(other, "c"));
+  writeFileSync(join(other, "c", "config.json"), JSON.stringify({ listen: { port: 0 } }));
   const empty = await startBrokerFromFiles(
     resolvePaths({ SESSIONHOOK_CONFIG_DIR: join(other, "c"), SESSIONHOOK_STATE_DIR: join(other, "s") }),
     {},
@@ -215,6 +218,8 @@ test("with two subscribers on the same topic, tail shows the event to both", asy
 
   assert.equal(await deliver("org/tail", 2001), 200);
   await until(() => first.output.stdout.includes("\n") && second.output.stdout.includes("\n"), "both tails to print");
+  // A tail killed between printing and acknowledging would deliver the event again, which is the guarantee, so wait for the acks.
+  await until(() => broker.store.unreadCount("tail-one") === 0 && broker.store.unreadCount("tail-two") === 0, "both tails to acknowledge");
   first.child.kill("SIGTERM");
   second.child.kill("SIGTERM");
   await Promise.all([first.finished, second.finished]);
