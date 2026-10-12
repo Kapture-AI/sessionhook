@@ -1,14 +1,110 @@
 # sessionhook
 
-sessionhook delivers outside events, such as a comment on a Jira ticket, to running Claude Code sessions. A single broker process stores incoming events in a SQLite file, keeps a cursor for each subscriber, and hands every subscriber the events it has not yet seen, including those that arrived while it was not running.
+sessionhook delivers outside events, such as a comment on a Jira ticket, to running Claude Code sessions. A single broker process stores incoming events in a SQLite file, keeps a cursor for each subscriber, and hands every subscriber the events it has not yet seen, including those that arrived while it was not running. Any number of sessions can subscribe to any ticket, and each receives every event.
 
-## Status
+It is an early release. The commands and the config format can still change between versions.
 
-The broker, the generic signed webhook source, the Jira source (webhook and poll modes), command line delivery and delivery into a Claude Code session as a channel work. The `init`, `doctor` and `spawn` commands are not there yet, and those commands print that they are not implemented.
+```
+Jira  --poll or webhook-->  broker (events.db)  --channel or wait-->  Claude Code session
+```
 
 ## Requirements
 
-Node 22.13 or later, on Linux or macOS.
+- Node 22.13 or later, on Linux or macOS.
+- A Jira Cloud account and an API token, created at id.atlassian.com under Security, API tokens. The account must be able to see the tickets you subscribe to.
+- For delivery into a session as a channel, Claude Code 2.1.80 or later. Without it, `sessionhook wait` delivers the same events and needs nothing from Claude Code.
+- For `sessionhook spawn`, tmux 3.2 or later.
+
+## Install
+
+```sh
+npm install -g sessionhook
+```
+
+Install it globally. `init` writes the absolute path of the installed `cli.js` into Claude Code's settings and into the service, and `npx` unpacks the package into a cache directory that npm may delete later, which would leave both pointing at nothing.
+
+## Quick start
+
+This path needs no domain, no open port and no Jira administrator rights. The broker asks Jira for changes on a timer.
+
+### 1. Run init
+
+```sh
+sessionhook init
+```
+
+`init` asks for the Jira site address (such as `https://example.atlassian.net`), the mode (press Enter for `poll`), the email of the account that owns the token, and the token, which is not shown as you type. It then asks who may wake a session and for the text that marks your agent's own comments. Both can stay empty, but read [Safety](#safety) before leaving the first one empty.
+
+Before it writes anything, `init` asks Jira who the token belongs to and prints that name, so a wrong token stops here. Then it writes `config.json` and `secrets.json` (mode 600) into `~/.config/sessionhook`, registers the channel server with Claude Code, and offers to install the broker as a service that starts at login. Answer no to the last question if you prefer to run `sessionhook serve` yourself.
+
+Every answer can also be given as an option, so `init` can run unattended.
+
+```sh
+sessionhook init --yes --site https://example.atlassian.net --email ada@example.com \
+  --mode poll --token-file "${HOME}/jira-token" --allow-actor "Ada Lovelace" \
+  --no-register --no-service
+```
+
+The token is never accepted as an option, because options show up in `ps` and in shell history. `--yes` accepts the defaults and never asks, and fails with a message when a required answer is missing. Running `init` again shows the existing config, asks before changing it, keeps secrets that are already stored, and keeps other sources and the settings it does not ask about.
+
+### 2. Check the setup
+
+```sh
+sessionhook doctor
+```
+
+`doctor` prints one line per check and exits non-zero when one fails. If you chose not to install the service, start the broker first with `sessionhook serve` in a terminal of its own. The Claude Code check fails when the channel server is not registered, so it fails after `init --no-register` until you run the registration command it prints.
+
+### 3. Start a session on a ticket
+
+```sh
+sessionhook spawn jira:PROJ-123
+```
+
+This subscribes a subscriber named `proj-123` to the ticket and starts a detached tmux session named `proj-123` that runs Claude Code with the channel loaded. Claude Code shows a dialog, "WARNING: Loading development channels", at every start. `spawn` watches the tmux pane and presses Enter once when it sees that dialog, because option 1 is preselected. Pass `--no-confirm` to answer it yourself. `tmux attach -t proj-123` shows the session.
+
+Add a comment to PROJ-123. It reaches the session within about 30 seconds in poll mode.
+
+The session is subscribed under the name `proj-123`, so starting `spawn` again with the same name, after killing the session or rebooting, continues from where that subscriber stopped and delivers what it missed. The options are `--cwd <dir>` for the directory the session starts in, `--name <name>` for a different session and subscriber name, and `--prompt <text>` for the first prompt.
+
+### Without spawn
+
+A session that is already running, or one that cannot carry the channel flag, can subscribe from a shell and wait for events.
+
+```sh
+sessionhook subscribe jira:PROJ-123 --name my-session
+sessionhook wait --name my-session
+```
+
+`wait` blocks until there is an unread event, prints it and exits. A Claude Code session can run it as a background task and is woken when it exits. The [CLI delivery](#cli-delivery) section has the details.
+
+## What a session sees
+
+With the channel, each event arrives in the session as a message.
+
+```
+<channel source="sessionhook" topic="jira:PROJ-123" event_type="comment_created" seq="12" actor="Ada Lovelace" at="2026-10-12T10:00:00.000Z" url="https://example.atlassian.net/browse/PROJ-123?focusedCommentId=20001">
+#12 jira:PROJ-123 comment_created
+by Ada Lovelace at 2026-10-12T10:00:00.000Z
+https://example.atlassian.net/browse/PROJ-123?focusedCommentId=20001
+Deploy check passed, safe to ignore.
+</channel>
+```
+
+The session also has three tools, `subscribe`, `unsubscribe` and `list_subscriptions`, so it can add a ticket at runtime. With `wait`, the session reads the same block from the command's output.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `sessionhook init` | Sets up the Jira source, the secrets file, the Claude Code registration and the service. |
+| `sessionhook serve` | Runs the broker in the foreground. |
+| `sessionhook doctor` | Checks the config, the broker, the Jira token, the public webhook URL and Claude Code. |
+| `sessionhook spawn <topic>` | Starts a tmux session running Claude Code, subscribed to the topic. |
+| `sessionhook subscribe <topic>`, `unsubscribe <topic>`, `status` | Manage subscriptions from a shell. |
+| `sessionhook wait`, `tail`, `replay` | Read events from a shell. |
+| `sessionhook service install`, `uninstall`, `status` | Manage the broker as a login service. |
+| `sessionhook channel` | The MCP server Claude Code starts. Do not run it by hand. |
 
 ## How it works
 
@@ -27,36 +123,28 @@ Both directories can be moved with an environment variable.
 
 The broker creates the state directory with mode 700 when it does not exist. A missing `config.json` means the defaults, which is a broker with no sources.
 
+`config.json` has four top-level keys, all optional.
+
 ```json
 {
   "listen": { "host": "127.0.0.1", "port": 8377 },
-  "sources": {
-    "deploys": {
-      "type": "webhook",
-      "signature": { "header": "X-Hub-Signature-256", "prefix": "sha256=", "secret": "DEPLOYS_WEBHOOK_SECRET" },
-      "map": {
-        "key": "repository.full_name",
-        "id": "delivery.id",
-        "type": "action",
-        "actorId": "sender.id",
-        "actorName": "sender.login",
-        "at": "created_at",
-        "url": "html_url",
-        "summary": "message"
-      },
-      "allowActors": [],
-      "ignoreActors": [],
-      "ignoreMarker": ""
-    }
-  }
+  "publicUrl": "https://hooks.example.com",
+  "spawn": { "claudeFlags": ["--model", "some-model"], "prompt": "Wait for events and handle each one." },
+  "sources": {}
 }
 ```
 
 `listen` defaults to `127.0.0.1:8377`. Keep the host on a loopback address and put a reverse proxy or tunnel in front of it when a sender outside the machine has to reach it. The broker does not stop you from binding another address.
 
-The source name (`deploys` above) is the path, so the sender posts to `/hooks/deploys`. It may contain lowercase letters, digits and hyphens. The source type is `webhook` or `jira`, and the Jira source has its own section below.
+`publicUrl` is the origin that reaches the webhook listener from outside, an `https://` address with no path. `init` uses it to print the webhook URL, and `doctor` uses it to test that the address reaches this broker.
 
-`signature.secret` is the name of a secret, never the value. The broker looks the name up in `secrets.json`, then in the environment variable of the same name, then in the file named by the variable `<NAME>_FILE` (the Docker convention, the file's content is the secret and it must not be readable by group or others). `secrets.json` is a flat object of names to values and must have mode 600, or the broker refuses to read it.
+`spawn.claudeFlags` is a list of extra options that `spawn` passes to `claude` as they are, and `spawn.prompt` is the first prompt for spawned sessions when `--prompt` is not given. `spawn` adds no permission option of its own. It never passes `--dangerously-skip-permissions` unless you put it in `claudeFlags`.
+
+`init` sets up the Jira source. The generic webhook source below is set up by editing `config.json`.
+
+### Secrets
+
+Settings that need a secret hold its name, never the value. The broker looks the name up in `secrets.json`, then in the environment variable of the same name, then in the file named by the variable `<NAME>_FILE` (the Docker convention, the file's content is the secret). `secrets.json` is a flat object of names to values and must have mode 600, and so must a `<NAME>_FILE` file, or the broker refuses to read it. `init` creates `secrets.json` with that mode.
 
 ```json
 { "DEPLOYS_WEBHOOK_SECRET": "a long random string" }
@@ -66,9 +154,9 @@ The source name (`deploys` above) is the path, so the sender posts to `/hooks/de
 chmod 600 "${HOME}/.config/sessionhook/secrets.json"
 ```
 
-The signature is the HMAC-SHA256 of the raw request body as hex, compared against the configured header after the configured prefix is removed.
+A machine that already keeps its Jira token in a file can skip the copy by exporting `JIRA_API_TOKEN_FILE` with that file's path in the environment of the broker.
 
-The `map` entries are dotted paths into the JSON body. Only `key` is required. The event topic is `<source name>:<value at key>`, and the event id is `<source name>:<value at id>`, or the source name and the SHA-256 of the raw body when `id` is not mapped or missing. The same request sent twice is therefore stored once. When a mapping is absent or its path is missing, `type` is `event`, the actor is empty, `at` is the time the request arrived, and `url` and `summary` are empty. A summary is cut to 2,000 characters. A body that is not JSON, or has no value at `key`, is answered with 400.
+### Actor filters
 
 The three filter settings apply to every event before it is stored.
 
@@ -193,6 +281,42 @@ The listener binds to `127.0.0.1:8377` and serves only `/hooks/*`, so a proxy po
 - Tailscale Funnel or an ngrok static address, for a machine without a domain. `tailscale funnel 8377` publishes the port on a `ts.net` address, and ngrok can forward a reserved domain to the port.
 - A relay such as smee.io or Hookdeck, which receives the webhook on a public address and forwards it to a client on your machine. The signature covers the exact bytes of the body, so check that the relay forwards the body and the `X-Hub-Signature` header unchanged.
 
+## Generic webhook source
+
+The source type `webhook` accepts signed requests from any sender and maps fields of the JSON body to an event, with no code. It is configured by editing `config.json`, `init` does not set it up. This is an example source named `deploys`.
+
+```json
+{
+  "sources": {
+    "deploys": {
+      "type": "webhook",
+      "signature": { "header": "X-Hub-Signature-256", "prefix": "sha256=", "secret": "DEPLOYS_WEBHOOK_SECRET" },
+      "map": {
+        "key": "repository.full_name",
+        "id": "delivery.id",
+        "type": "action",
+        "actorId": "sender.id",
+        "actorName": "sender.login",
+        "at": "created_at",
+        "url": "html_url",
+        "summary": "message"
+      },
+      "allowActors": [],
+      "ignoreActors": [],
+      "ignoreMarker": ""
+    }
+  }
+}
+```
+
+The source name (`deploys` above) is the path, so the sender posts to `/hooks/deploys`. It may contain lowercase letters, digits and hyphens. The source type is `webhook` or `jira`, and the Jira source has its own section below.
+
+`signature.secret` is the name of a secret, see [Secrets](#secrets).
+
+The signature is the HMAC-SHA256 of the raw request body as hex, compared against the configured header after the configured prefix is removed.
+
+The `map` entries are dotted paths into the JSON body. Only `key` is required. The event topic is `<source name>:<value at key>`, and the event id is `<source name>:<value at id>`, or the source name and the SHA-256 of the raw body when `id` is not mapped or missing. The same request sent twice is therefore stored once. When a mapping is absent or its path is missing, `type` is `event`, the actor is empty, `at` is the time the request arrived, and `url` and `summary` are empty. A summary is cut to 2,000 characters. A body that is not JSON, or has no value at `key`, is answered with 400.
+
 ## Running the broker
 
 ```sh
@@ -214,47 +338,21 @@ curl -sS -X POST "http://127.0.0.1:8377/hooks/deploys" \
   --data-binary "${body}"
 ```
 
-## Subscribing and reading events
-
-```sh
-sessionhook subscribe deploys:acme/web --name my-session
-sessionhook unsubscribe deploys:acme/web --name my-session
-sessionhook status
-sessionhook wait --name my-session
-sessionhook tail --name my-session
-sessionhook replay --from 12 --name my-session
-```
-
-The subscriber name is taken from `--name`, then the environment variable `SESSIONHOOK_SUBSCRIBER`, then `CLAUDE_CODE_SESSION_ID`, which Claude Code sets for the shells it starts. Without any of them the command fails and says how to pass one.
-
-`subscribe` and `unsubscribe` take one topic. `status` prints a table of subscribers with their topics, unread count and last seen time, or `status --json` for scripts.
-
-`wait` blocks without output until the subscriber has unread events, prints them all, acknowledges them and exits with status 0. A Claude Code session can run it as a background task and is woken when it exits. Each event prints as a short block.
-
-```
-#12 deploys:acme/web deployed
-by Ada Lovelace at 2026-10-12T10:00:00.000Z
-https://example.com/deploys/1
-Release 1.2 is live
-```
-
-`tail` does the same without exiting. `wait --json` and `tail --json` print one JSON object per line instead.
-
-`replay --from <seq>` moves the subscriber's cursor back so that events from that sequence number are delivered again by `wait` or `tail`, and prints how many are now unread. It does not reach back before the subscription was made.
-
 ## Channel delivery
 
 A channel pushes events into a running Claude Code session as messages, with no watcher process to arm. Claude Code starts `sessionhook channel` as an MCP server for the session, the server follows the broker for the session's subscriber name, and each event becomes one channel message.
 
 Channels need Claude Code 2.1.80 or later. They are a research preview, so a server that is not on Anthropic's allowlist loads only through the development flag described below. Organisations on Claude Team or Enterprise have channels off until an owner enables them. If that is you, use `sessionhook wait` instead, which needs nothing from Claude Code.
 
-Register the server once. This is a manual step until `init` exists.
+`sessionhook init` registers the server with Claude Code at user scope, using the absolute paths of `node` and of the installed `cli.js` so that the entry works whatever PATH a session starts with. To do it by hand, run the following with the real paths.
 
 ```sh
-claude mcp add --scope user sessionhook -- sessionhook channel
+claude mcp add --scope user sessionhook -- /usr/local/bin/node /usr/local/lib/node_modules/sessionhook/dist/cli.js channel
 ```
 
-Start the session with the development flag. The flag takes a list, so the prompt must come before it.
+Register at user scope. A server that is declared in a project's `.mcp.json` adds a consent prompt whose default declines it.
+
+`sessionhook spawn` starts a session with the flag for you. To start one by hand, put the prompt before the development flag, because the flag takes a list.
 
 ```sh
 claude "Wait for channel messages." --dangerously-load-development-channels server:sessionhook
@@ -289,11 +387,71 @@ Delivery into Claude Code is at-least-once. The server acknowledges an event onl
 
 If the broker is not running, the server logs one line to stderr, retries with a delay that grows from 1 second to 15 seconds, logs one line when the broker is back and carries on. The cursor lives in the broker, so nothing is lost in between, and `sessionhook status` shows the session's last seen time moving while its channel is alive.
 
-A subscribed session acts on text written by other people. A comment on a ticket can ask the model to do things, and the model may do them. The control is the actor allowlist on each source, which decides whose events reach any session. Combined with `--dangerously-skip-permissions`, anyone on the allowlist can drive the session, so keep the list to people you would give a shell.
+The safety section below explains who can drive a subscribed session.
+
+## CLI delivery
+
+```sh
+sessionhook subscribe deploys:acme/web --name my-session
+sessionhook unsubscribe deploys:acme/web --name my-session
+sessionhook status
+sessionhook wait --name my-session
+sessionhook tail --name my-session
+sessionhook replay --from 12 --name my-session
+```
+
+The subscriber name is taken from `--name`, then the environment variable `SESSIONHOOK_SUBSCRIBER`, then `CLAUDE_CODE_SESSION_ID`, which Claude Code sets for the shells it starts. Without any of them the command fails and says how to pass one.
+
+`subscribe` and `unsubscribe` take one topic. `status` prints a table of subscribers with their topics, unread count and last seen time, or `status --json` for scripts.
+
+`wait` blocks without output until the subscriber has unread events, prints them all, acknowledges them and exits with status 0. A Claude Code session can run it as a background task and is woken when it exits. Each event prints as a short block.
+
+```
+#12 deploys:acme/web deployed
+by Ada Lovelace at 2026-10-12T10:00:00.000Z
+https://example.com/deploys/1
+Release 1.2 is live
+```
+
+`tail` does the same without exiting. `wait --json` and `tail --json` print one JSON object per line instead.
+
+`replay --from <seq>` moves the subscriber's cursor back so that events from that sequence number are delivered again by `wait` or `tail`, and prints how many are now unread. It does not reach back before the subscription was made.
+
+## Service
+
+`sessionhook service install` runs the broker at login and restarts it when it stops. `uninstall` stops and removes it, and `status` shows whether it is installed and running. Each asks before replacing or removing an existing service unless you pass `--yes`.
+
+On Linux it writes `~/.config/systemd/user/sessionhook.service`, runs `systemctl --user daemon-reload` and `systemctl --user enable --now sessionhook.service`. The unit restarts the broker two seconds after it exits. If `SESSIONHOOK_CONFIG_DIR` or `SESSIONHOOK_STATE_DIR` is set when you run the command, the unit carries the same values. A user service stops when you log out unless lingering is on, and the command prints the `loginctl enable-linger` line to run when it is off.
+
+On macOS it writes `~/Library/LaunchAgents/com.sessionhook.broker.plist` with `RunAtLoad` and `KeepAlive`, and loads it with `launchctl bootstrap gui/<uid>`. Its output goes to `~/Library/Logs/sessionhook.log`. The macOS path has not been run on a Mac. The generated plist is covered by unit tests and written from Apple's documented format, so treat it as untested, and report what you find.
 
 ## Delivery guarantee
 
 Delivery is at-least-once. The broker keeps one cursor per subscriber, the commands print events and only then acknowledge them, and a crash in between delivers the same events again on the next run. Two subscribers on one topic each receive every event. A subscription only sees events that arrive after it was made, and a subscriber that was away catches up from its cursor. If the broker is not running, the commands fail and say to start it with `sessionhook serve`.
+
+## Safety
+
+A subscribed session acts on text written by other people. A comment on a ticket can ask the model to do things, and the model may do them. The control is the actor allowlist, `allowActors` on each source, which decides whose events reach any session. With the list empty, anyone who can comment on a ticket you subscribe to can wake a session and give it instructions.
+
+Combined with `--dangerously-skip-permissions`, anyone on the allowlist can drive the session, so keep the list to people you would give a shell. `spawn` never adds that option. It is passed only when you put it in `spawn.claudeFlags`.
+
+An agent that posts comments under a human's account should end each comment with a fixed text and set `ignoreMarker` to it, so its own comments wake nothing.
+
+## Troubleshooting
+
+Run `sessionhook doctor` first. It names the check that failed and says what to do.
+
+The broker is not running. Every command except `serve`, `init` and `doctor` fails with "the broker is not running". Start it with `sessionhook serve`, or with `sessionhook service install` to have it start at login. A broker that was started with other `SESSIONHOOK_CONFIG_DIR` or `SESSIONHOOK_STATE_DIR` values than your shell has is a different broker, so set the same values for both.
+
+Channels are off for Team and Enterprise organisations. Claude Code ignores channels there until an owner enables them. `doctor` cannot see that setting. Use `sessionhook wait` as a background task in the session, which works without channels.
+
+The development channels dialog. Claude Code asks "WARNING: Loading development channels" at every start, including `--resume`, and no setting removes it. `spawn` presses Enter when the dialog appears. If it never appeared within 30 seconds, the session may be waiting on another prompt, such as a question whether to trust the folder. Attach with `tmux attach -t <name>` and answer it. The flag is ignored by `claude -p`, so a channel needs an interactive session.
+
+A Jira token that stops working. `doctor` reports a 401 or 403 as a wrong email or token. Create a new token, run `init` again with `--token-file`, and confirm replacing the stored one.
+
+Nothing arrives in poll mode. The poll runs every 30 seconds by default, and the topic must match the ticket key exactly, as in `jira:PROJ-123`. The broker logs poll failures once when they start and once when they end, so look at its log (`journalctl --user -u sessionhook` for the Linux service).
+
+The webhook URL does not reach the listener. `doctor` tells apart a wrong webhook secret (401), an address that leads to something else, and no connection. See the section on getting a public address under the Jira source.
 
 ## Build and test
 
@@ -302,7 +460,7 @@ npm ci
 npm test
 ```
 
-`npm test` compiles the TypeScript to `dist/` and runs the tests with Node's built-in test runner.
+`npm test` compiles the TypeScript to `dist/` and runs the tests with Node's built-in test runner. The tests use loopback and unix sockets only, and never touch your real config, Claude Code settings, systemd or tmux.
 
 ## License
 
