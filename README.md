@@ -309,7 +309,7 @@ The source type `webhook` accepts signed requests from any sender and maps field
 }
 ```
 
-The source name (`deploys` above) is the path, so the sender posts to `/hooks/deploys`. It may contain lowercase letters, digits and hyphens. The source type is `webhook` or `jira`, and the Jira source has its own section below.
+The source name (`deploys` above) is the path, so the sender posts to `/hooks/deploys`. It may contain lowercase letters, digits and hyphens. The source type is `webhook` or `jira`, and the Jira source has its own section above.
 
 `signature.secret` is the name of a secret, see [Secrets](#secrets).
 
@@ -462,6 +462,18 @@ npm test
 
 `npm test` compiles the TypeScript to `dist/` and runs the tests with Node's built-in test runner. The tests use loopback and unix sockets only, and never touch your real config, Claude Code settings, systemd or tmux.
 
+## Releasing
+
+For maintainers. Set the new version in `package.json` (`npm version <version> --no-git-tag-version`), commit it through a pull request, and wait for the tests to pass on `main`. Tag the merge commit `vX.Y.Z`, push the tag, and run the publish workflow on it.
+
+```sh
+git tag vX.Y.Z
+git push origin vX.Y.Z
+gh workflow run publish.yml --ref vX.Y.Z
+```
+
+The workflow fails unless the ref is the tag `v<version>` that matches `package.json`. It publishes with npm trusted publishing, so no npm token is stored anywhere. The trusted publisher entry on npmjs.com must name this repository and the workflow file `publish.yml`.
+
 ## License
 
-MIT
+MIT, see [LICENSE](LICENSE).
