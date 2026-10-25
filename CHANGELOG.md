@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+A generic webhook source takes `ignoreFields`, as the Jira source does. A body whose `changelog.items` are all listed fields is answered 200 and stores no event, so a Jira webhook pointed at a generic source no longer turns each attachment upload into an event.
+
 ## 0.1.1
 
 The webhook listener answered 404 to a request whose URL carried a query string, which is how Jira Cloud delivers webhooks, so webhook mode dropped every real Jira delivery. The listener now matches on the path alone, logs a POST under `/hooks/` that names no configured source, and `doctor` probes the public URL with a query string.

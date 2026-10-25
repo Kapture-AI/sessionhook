@@ -1,6 +1,6 @@
 {
   "name": "sessionhook",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Deliver Jira comments and webhook events to running Claude Code sessions",
   "keywords": [
     "claude-code",
