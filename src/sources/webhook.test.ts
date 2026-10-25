@@ -167,3 +167,41 @@ test("a body without a value at the key path is a bad payload", () => {
 test("a key that cannot form a topic is a bad payload", () => {
   assert.throws(() => source.parse(request({ repository: { full_name: "a\nb" } })), BadPayloadError);
 });
+
+const jiraPayload = (items: unknown) => ({
+  webhookEvent: "jira:issue_updated",
+  timestamp: 1761390994240,
+  issue: { key: "KAN-1", fields: { project: { key: "KAN" } } },
+  ...(items === undefined ? {} : { changelog: { id: "1", items } }),
+});
+const watcher = new WebhookSource(
+  "watcher",
+  { ...config, map: { key: "issue.fields.project.key", type: "webhookEvent" }, ignoreFields: ["Attachment"] },
+  secret,
+);
+
+test("ignoreFields drops an update whose changelog items are all listed fields", () => {
+  assert.deepEqual(watcher.parse(request(jiraPayload([{ field: "Attachment" }, { field: "Attachment" }]))), []);
+});
+
+test("ignoreFields keeps an update that changes a listed field alongside another", () => {
+  const events = watcher.parse(request(jiraPayload([{ field: "Attachment" }, { field: "status" }])));
+  assert.equal(events.length, 1);
+  assert.equal(events[0]!.topic, "watcher:KAN");
+});
+
+test("ignoreFields keeps a body with no changelog, an empty one or items without a field", () => {
+  for (const items of [undefined, [], [{}], [{ field: 3 }], "Attachment"]) {
+    assert.equal(watcher.parse(request(jiraPayload(items))).length, 1, JSON.stringify(items));
+  }
+});
+
+test("ignoreFields keeps a comment event", () => {
+  const comment = { webhookEvent: "comment_created", issue: { key: "KAN-1", fields: { project: { key: "KAN" } } }, comment: { body: "Attachment" } };
+  assert.equal(watcher.parse(request(comment)).length, 1);
+});
+
+test("without ignoreFields an attachment-only update is still an event", () => {
+  const plain = new WebhookSource("watcher", { ...config, map: { key: "issue.fields.project.key" } }, secret);
+  assert.equal(plain.parse(request(jiraPayload([{ field: "Attachment" }]))).length, 1);
+});

@@ -21,6 +21,8 @@ export type WebhookSourceConfig = IntakeFilters & {
   type: "webhook";
   signature: { header: string; prefix: string; secret: string };
   map: FieldMap;
+  // Drops a body whose changelog.items are all these fields, as a Jira issue_updated webhook carries them.
+  ignoreFields?: string[];
 };
 
 export type JiraSourceConfig = IntakeFilters & {
@@ -115,7 +117,7 @@ function readFilters(source: Json, prefix: string): IntakeFilters {
 function validateWebhookSource(source: Json, prefix: string): WebhookSourceConfig {
   rejectUnknownKeys(
     source,
-    ["type", "signature", "map", "allowActors", "ignoreActors", "ignoreMarker"],
+    ["type", "signature", "map", "ignoreFields", "allowActors", "ignoreActors", "ignoreMarker"],
     prefix,
   );
 
@@ -124,7 +126,7 @@ function validateWebhookSource(source: Json, prefix: string): WebhookSourceConfi
   const map = asObject(source.map, `${prefix}map`);
   rejectUnknownKeys(map, mapFields, `${prefix}map.`);
 
-  return {
+  const config: WebhookSourceConfig = {
     type: "webhook",
     signature: {
       header: requiredText(signature, "header", `${prefix}signature.`).toLowerCase(),
@@ -134,6 +136,8 @@ function validateWebhookSource(source: Json, prefix: string): WebhookSourceConfi
     map: readMap(map, `${prefix}map.`),
     ...readFilters(source, prefix),
   };
+  if (source.ignoreFields !== undefined) config.ignoreFields = textList(source, "ignoreFields", prefix);
+  return config;
 }
 
 // Links and probes are built from the origin, so it must be a bare https origin.

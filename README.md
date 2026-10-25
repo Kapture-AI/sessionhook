@@ -271,7 +271,7 @@ resolution: none -> Done
 
 The filters from Configuration apply to Jira events in both modes. `allowActors` limits who can wake a session, `ignoreActors` silences accounts such as bots, and `ignoreMarker` exists for agents that post comments under a human's account. Have the agent end each comment with a fixed text such as `[agent]` and set `ignoreMarker` to that text, so the agent's own comments do not wake the sessions subscribed to the ticket.
 
-`ignoreFields` is a filter for `issue_updated` events only, and it applies in both modes. A listed field is left out of the summary, and an update whose changed fields are all listed produces no event, though the webhook is still answered 200. An agent that uploads files to a ticket under a human's account makes updates that contain only `Attachment`, which would wake the session that made them. Moving cards on a board makes `Rank` updates that nobody needs to read. Listing these two fields silences both.
+`ignoreFields` is a filter for `issue_updated` events only, and it applies in both modes. A generic webhook source that receives Jira webhooks takes the same setting, see [Generic webhook source](#generic-webhook-source). A listed field is left out of the summary, and an update whose changed fields are all listed produces no event, though the webhook is still answered 200. An agent that uploads files to a ticket under a human's account makes updates that contain only `Attachment`, which would wake the session that made them. Moving cards on a board makes `Rank` updates that nobody needs to read. Listing these two fields silences both.
 
 ### Getting a public address for webhook mode
 
@@ -316,6 +316,8 @@ The source name (`deploys` above) is the path, so the sender posts to `/hooks/de
 The signature is the HMAC-SHA256 of the raw request body as hex, compared against the configured header after the configured prefix is removed.
 
 The `map` entries are dotted paths into the JSON body. Only `key` is required. The event topic is `<source name>:<value at key>`, and the event id is `<source name>:<value at id>`, or the source name and the SHA-256 of the raw body when `id` is not mapped or missing. The same request sent twice is therefore stored once. When a mapping is absent or its path is missing, `type` is `event`, the actor is empty, `at` is the time the request arrived, and `url` and `summary` are empty. A summary is cut to 2,000 characters. A body that is not JSON, or has no value at `key`, is answered with 400.
+
+`ignoreFields` is optional: a list of field names, matched exactly. When every entry of the body's `changelog.items` has a `field` in the list, the request is answered 200 and stores no event. A body with no `changelog`, an empty one, or one that also changes an unlisted field is stored as usual. This is the shape of a Jira `jira:issue_updated` webhook, so `"ignoreFields": ["Attachment"]` on a source fed by Jira drops the updates made only by file uploads, as the Jira source's setting of the same name does.
 
 ## Running the broker
 

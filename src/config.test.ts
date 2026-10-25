@@ -56,6 +56,11 @@ test("a full source keeps every mapped field and filter", () => {
   assert.equal(config.sources.deploys!.ignoreMarker, "[bot]");
 });
 
+test("a webhook source keeps ignoreFields as written", () => {
+  const config = validateConfig({ sources: { watcher: { ...validSource, ignoreFields: ["Attachment", "Rank"] } } });
+  assert.deepEqual((config.sources.watcher as WebhookSourceConfig).ignoreFields, ["Attachment", "Rank"]);
+});
+
 test("errors name the offending key", () => {
   const cases: Array<[unknown, RegExp]> = [
     [[], /^config must be an object/],
@@ -71,6 +76,8 @@ test("errors name the offending key", () => {
     [{ sources: { deploys: { ...validSource, allowActors: "ada" } } }, /^sources\.deploys\.allowActors must be a list/],
     [{ sources: { deploys: { ...validSource, ignoreActors: [""] } } }, /^sources\.deploys\.ignoreActors must be a list/],
     [{ sources: { deploys: { ...validSource, ignoreMarker: 3 } } }, /^sources\.deploys\.ignoreMarker must be a string/],
+    [{ sources: { deploys: { ...validSource, ignoreFields: "Attachment" } } }, /^sources\.deploys\.ignoreFields must be a list/],
+    [{ sources: { deploys: { ...validSource, ignoreFields: [""] } } }, /^sources\.deploys\.ignoreFields must be a list/],
     [{ publicUrl: "http://hooks.example.com" }, /^publicUrl must be an https origin with no path, such as https:\/\/hooks\.example\.com/],
     [{ publicUrl: "https://hooks.example.com/hooks" }, /^publicUrl must be an https origin with no path/],
     [{ publicUrl: "hooks" }, /^publicUrl must be an https address/],

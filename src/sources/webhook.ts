@@ -18,6 +18,19 @@ function valueAt(body: unknown, path: string): string | undefined {
   return undefined;
 }
 
+// True when the body's changelog.items is a non-empty list whose every field is ignored.
+function changesOnlyIgnoredFields(body: unknown, ignoreFields: string[]): boolean {
+  if (ignoreFields.length === 0 || typeof body !== "object" || body === null) return false;
+  const changelog = (body as Record<string, unknown>).changelog;
+  if (typeof changelog !== "object" || changelog === null) return false;
+  const items = (changelog as Record<string, unknown>).items;
+  if (!Array.isArray(items) || items.length === 0) return false;
+  return items.every((item) => {
+    const field = typeof item === "object" && item !== null ? (item as Record<string, unknown>).field : undefined;
+    return typeof field === "string" && ignoreFields.includes(field);
+  });
+}
+
 function isoTime(value: string | undefined, fallback: Date): string {
   const parsed = value === undefined ? fallback : new Date(value);
   return Number.isNaN(parsed.getTime()) ? fallback.toISOString() : parsed.toISOString();
@@ -54,6 +67,7 @@ export class WebhookSource implements Source {
     } catch {
       throw new BadPayloadError(`the value at "${map.key}" cannot be used in a topic`);
     }
+    if (changesOnlyIgnoredFields(body, this.config.ignoreFields ?? [])) return [];
 
     const mappedId = read(map.id);
     const id = mappedId
